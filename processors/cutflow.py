@@ -13,17 +13,15 @@ import hist
 from coffea.analysis_tools import Weights, PackedSelection
 from collections import defaultdict
 
-class CutflowProcessor(processor.ProcessorABC):
-    def __init__(self, wp_btag=0, do_jetid=True, do_lumijson=False):
+class OldCutflowProcessor(processor.ProcessorABC):
+    def __init__(self, wp_btag=0.2, do_jetid=False,):
         self._wp_btag = wp_btag
         self._do_jetid = do_jetid
-        self._do_lumijson = do_lumijson
         
     @property
     def accumulator(self):
         return {
             "sumw": defaultdict(float),
-            "lumi": defaultdict(set),
             "cutflow": (
                             Hist.new.StrCategory(
                                 [], name="dataset", label="Dataset", growth=True
@@ -32,11 +30,9 @@ class CutflowProcessor(processor.ProcessorABC):
                             ).Reg(
                                 50, 40, 220, name="msoftdrop", label=r"msoftdrop"
                             ).Reg(
-                                20, 0, 2, name="ecalIso", label=r"ecalIso"
+                                50, 150, 700, name="pt", label=r"$p_T$"
                             ).Reg(
-                                20, 0, 2, name="hcalIso", label=r"hcalIso"
-                            ).Reg(
-                                50, 0, 1.1, name="pn_Hbb", label=r"H(bb) vs QCD score"
+                                50, 0, 1, name="pn_Hbb", label=r"H(bb) vs QCD score"
                             ).IntCategory(
                                 [], name="cut", label="Cut Idx", growth=True
                             ).Weight()
@@ -48,6 +44,8 @@ class CutflowProcessor(processor.ProcessorABC):
                                 [], name="region", label="Region", growth=True
                             ).Reg(
                                 30, 0, 400, name="pt", label=r"MET $p_T$"
+                            ).IntCategory(
+                                [], name="cat", label="Category", growth=True
                             ).Weight()
                         ),
             "goodmuon": (
@@ -61,6 +59,8 @@ class CutflowProcessor(processor.ProcessorABC):
                                 30, 0, 2, name="trk_dz", label=r"Leading muon track dz"
                             ).Reg(
                                 30, 0, 2, name="trk_dxy", label=r"Leading muon track dxy"
+                            ).IntCategory(
+                                [], name="cat", label="Category", growth=True
                             ).Weight()
                         ),
             "leptonicW": (
@@ -70,6 +70,8 @@ class CutflowProcessor(processor.ProcessorABC):
                                 [], name="region", label="Region", growth=True
                             ).Reg(
                                 30, 0, 400, name="pt", label=r"Leptonic W $p_T$"
+                            ).IntCategory(
+                                [], name="cat", label="Category", growth=True
                             ).Weight()
                         ),
             "mujetiso": (
@@ -78,9 +80,11 @@ class CutflowProcessor(processor.ProcessorABC):
                             ).StrCategory(
                                 [], name="region", label="Region", growth=True
                             ).Reg(
-                                30, 0, 5, name="dr", label=r"Min. $\Delta$R (muon, AK4 jet)"
+                                30, 0, 2, name="dr", label=r"Min. $\Delta$R(muon, AK4 jet)"
                             ).Reg(
-                                30, 0, 200, name="pt", label=r"Perp. p$_T$ (muon, nearest AK4 jet)"
+                                30, 0, 100, name="pt", label=r"Perp. p$_T$ (muon, nearest AK4 jet)"
+                            ).IntCategory(
+                                [], name="cat", label="Category", growth=True
                             ).Weight()
                         ),
             "ak4bjet": (
@@ -92,6 +96,8 @@ class CutflowProcessor(processor.ProcessorABC):
                                 30, 0, 50, name="njets", label=r"Number of AK4 b-jet in same hem. as muon"
                             ).Reg(
                                 30, 0, 1.1, name="pn_b_1", label=r"Leading AK4 b vs g score"
+                            ).IntCategory(
+                                [], name="cat", label="Category", growth=True
                             ).Weight()
                         ),
             "ak8jet": (
@@ -99,10 +105,24 @@ class CutflowProcessor(processor.ProcessorABC):
                                 [], name="dataset", label="Dataset", growth=True
                             ).StrCategory(
                                 [], name="region", label="Region", growth=True
+#                             ).Reg(
+#                                 30, 0, 10, name="njets", label=r"Number of AK8 in opp. hem. as muon"
+#                             ).Reg(
+#                                 30, 0, 400, name="pt", label=r"Leading AK8 $p_T$"
                             ).Reg(
-                                30, 0, 10, name="njets", label=r"Number of AK8 in opp. hem. as muon"
+                                30, 0, 1, name="neHEF", label=r"Leading AK8 neHEF"
                             ).Reg(
-                                30, 0, 400, name="pt", label=r"Leading AK8 $p_T$"
+                                30, 0, 1, name="neEmEF", label=r"Leading AK8 neEmEF"
+                            ).Reg(
+                                30, 0, 1, name="muEmEF", label=r"Leading AK8 muEmEF"
+                            ).Reg(
+                                30, 0, 1, name="chHEF", label=r"Leading AK8 chHEF"
+#                             ).Reg(
+#                                 30, 0, 20, name="nCh", label=r"Leading AK8 nCh"
+                            ).Reg(
+                                30, 0, 1, name="chEmEF", label=r"Leading AK8 chEmEF"
+                            ).IntCategory(
+                                [], name="cat", label="Category", growth=True
                             ).Weight()
                         ),
         }
@@ -114,7 +134,6 @@ class CutflowProcessor(processor.ProcessorABC):
         dataset = events.metadata['dataset']
         
         isRealData = not hasattr(events, "genWeight")
-        isTTbar = "TTto" in dataset
         
         selection = PackedSelection()
         weights = Weights(len(events), storeIndividual=True)
@@ -122,9 +141,6 @@ class CutflowProcessor(processor.ProcessorABC):
         if not isRealData:
             output['sumw'][dataset] += ak.sum(events.genWeight)
             weights.add('genweight', events.genWeight)
-        elif self._do_lumijson:
-            for run, lumi in zip(events.run, events.luminosityBlock):
-                output['lumi'][run].add(lumi)
             
         if len(events) == 0:
             return output
@@ -160,7 +176,7 @@ class CutflowProcessor(processor.ProcessorABC):
             0, 
             (jets.particleNet_prob_b / (jets.particleNet_prob_b + jets.particleNet_prob_g))
         )
-
+        
         # trigger
         selection.add("trigger", events.HLT["Mu50"])
         
@@ -198,6 +214,10 @@ class CutflowProcessor(processor.ProcessorABC):
         selection.add('isolatedmuon', 
                       ((near_jet_dr > 0.4) | (muon_pt_rel > 25)))
         
+        # Trk_dz requirement
+        selection.add('trk_dz', 
+                      (leadingmuon.trk_dz < 0.5))
+        
         # Same. hem. AK4 b-jet
         dphi = abs(jets.delta_phi(leadingmuon))
         jetsamehemisp = jets[dphi < 2]
@@ -213,12 +233,12 @@ class CutflowProcessor(processor.ProcessorABC):
         
         proxy = ak.firsts(fatjets[(is_away)])
         
-        if isTTbar:
+        if not isRealData:
             proxy = self.category(events, proxy)
             
         regions = {
-            'all': ['trigger','onemuon','met','leptonicW','isolatedmuon','onebjet','onefatjet','fatjetpt'],
-            'noselection': [],
+            'all': ['trigger', 'fatjetpt', 'met','onemuon','leptonicW','onebjet','onefatjet', 'isolatedmuon', 'trk_dz'],
+            'noselection' : [],
         }
         
         def normalize(val, cut):
@@ -234,42 +254,44 @@ class CutflowProcessor(processor.ProcessorABC):
                 continue
             allcuts = set([])
             cut = selection.all(*allcuts)
+            weight = weights.weight()[cut]
             
             output['cutflow'].fill(
                 dataset=dataset,
-                cat=normalize(proxy.cat, cut) if isTTbar else -1,
+                cat=normalize(proxy.cat, cut) if True else -1,
                 msoftdrop=normalize(proxy.msoftdrop, cut),
-                ecalIso=normalize(leadingmuon.ecalIso, cut),
-                hcalIso=normalize(leadingmuon.hcalIso, cut),
+                pt=normalize(proxy.pt, cut),
                 pn_Hbb=normalize(proxy.pn_Hbb, cut),
-                weight=weights.weight(),
                 cut=0,
+                weight=weight,
             )
             
             for i, cut in enumerate(cuts):
                 allcuts.add(cut)
                 cut = selection.all(*allcuts)
+                weight = weights.weight()[cut]
                 
                 output['cutflow'].fill(
                     dataset=dataset,
-                    cat=normalize(proxy.cat, cut) if isTTbar else -1,
+                    cat=normalize(proxy.cat, cut) if True else -1,
                     msoftdrop=normalize(proxy.msoftdrop, cut),
-                    ecalIso=normalize(leadingmuon.ecalIso, cut),
-                    hcalIso=normalize(leadingmuon.hcalIso, cut),
+                    pt=normalize(proxy.pt, cut),
                     pn_Hbb=normalize(proxy.pn_Hbb, cut),
-                    weight=weights.weight()[cut],
                     cut=i+1,
+                    weight=weight,
                 )
                 
         def fill(region):
             selections = regions[region]
             cut = selection.all(*selections)
+            weight = weights.weight()[cut]
             
             output['met'].fill(
                 dataset=dataset,
                 region=region,
                 pt=normalize(met.pt, cut),
-                weight=weights.weight()[cut],
+                cat=normalize(proxy.cat, cut) if True else -1,
+                weight=weight,
             )
             
             output['goodmuon'].fill(
@@ -278,6 +300,7 @@ class CutflowProcessor(processor.ProcessorABC):
                 pt=normalize(ak.firsts(events.ScoutingMuon).pt, cut),
                 trk_dz=normalize(ak.firsts(events.ScoutingMuon).trk_dz, cut),
                 trk_dxy=normalize(ak.firsts(events.ScoutingMuon).trk_dxy, cut),
+                cat=normalize(proxy.cat, cut) if True else -1,
                 weight=weights.weight()[cut],
             )
             
@@ -285,6 +308,7 @@ class CutflowProcessor(processor.ProcessorABC):
                 dataset=dataset,
                 region=region,
                 pt=normalize(leptonicW.pt, cut),
+                cat=normalize(proxy.cat, cut) if True else -1,
                 weight=weights.weight()[cut],
             )
             
@@ -293,6 +317,7 @@ class CutflowProcessor(processor.ProcessorABC):
                 region=region,
                 dr=normalize(near_jet_dr, cut),
                 pt=normalize(muon_pt_rel, cut),
+                cat=normalize(proxy.cat, cut) if True else -1,
                 weight=weights.weight()[cut],
             )
 
@@ -301,14 +326,22 @@ class CutflowProcessor(processor.ProcessorABC):
                 region=region,
                 njets=normalize(ak.num(jetsamehemisp), cut),
                 pn_b_1=normalize(ak.firsts(jetsamehemisp)["pn_b"], cut),
+                cat=normalize(proxy.cat, cut) if True else -1,
                 weight=weights.weight()[cut],
             )
             
             output['ak8jet'].fill(
                 dataset=dataset,
                 region=region,
-                pt=normalize(proxy.pt, cut),
-                njets=normalize(ak.num(dphi), cut),
+#                 pt=normalize(proxy.pt, cut),
+#                 njets=normalize(ak.num(dphi), cut),
+                cat=normalize(proxy.cat, cut) if True else -1,
+                neHEF=normalize(proxy.neHEF, cut),
+                neEmEF=normalize(proxy.neEmEF, cut),
+                muEmEF=normalize(proxy.muEmEF, cut),
+                chHEF=normalize(proxy.chHEF, cut),
+#                 nCh=normalize(proxy.nCh, cut),
+                chEmEF=normalize(proxy.chEmEF, cut),
                 weight=weights.weight()[cut],
             )
             

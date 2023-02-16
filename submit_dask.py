@@ -4,18 +4,18 @@ from lpcjobqueue import LPCCondorCluster
 from dask.distributed import performance_report
 from dask_jobqueue import HTCondorCluster, SLURMCluster
 
-from processors import HistProcessor, CutflowProcessor, ZbbProcessor
-import os
+from processors import HistProcessor, CutflowProcessor, ZbbProcessor, PVProcessor
+import os, sys
 import uproot
 from coffea import processor, util
 from coffea.nanoevents import NanoEventsFactory, ScoutingNanoAODSchema
 
 import json
 
-sample = "Run2022D"
+sample = sys.argv[1] #"Run2022D"
 
 fileset = {}
-with open(f"inputfiles/{sample}.json") as fin:
+with open(f"inputfiles/Run3Summer22/{sample}.json") as fin:
     fileset = json.load(fin)
 
 env_extra = [
@@ -25,7 +25,7 @@ env_extra = [
 cluster = LPCCondorCluster(
     transfer_input_files=["processors"],
     ship_env=True,
-    memory="12GB",
+    memory="8GB",
 )
 
 cluster.adapt(minimum=1, maximum=100)
@@ -39,11 +39,11 @@ uproot.open.defaults["xrootd_handler"] = uproot.source.xrootd.MultithreadedXRoot
 output = processor.run_uproot_job(
             fileset,
             "Events",
-            processor_instance=ZbbProcessor(),
+            processor_instance=CutflowProcessor(),
             executor=processor.dask_executor,
             executor_args={
                 "schema": ScoutingNanoAODSchema,
-                "savemetrics": True,
+                #"savemetrics": True,
                 "retries": 3,
                 "client": client,
                 'skipbadfiles': True,
@@ -52,7 +52,7 @@ output = processor.run_uproot_job(
             #maxchunks=args.max,
         )
 
-outfile = f"outfiles/zbb_{sample}.coffea"
+outfile = f"outfiles/Run3Summer22/PV/cutflow_{sample}_old.coffea"
 util.save(output, outfile)
 print("saved " + outfile)
 
