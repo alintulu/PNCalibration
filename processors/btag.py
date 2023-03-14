@@ -13,7 +13,7 @@ import hist
 from coffea.analysis_tools import Weights, PackedSelection
 from collections import defaultdict
 
-class CutflowProcessor(processor.ProcessorABC):
+class BTagProcessor(processor.ProcessorABC):
     def __init__(self, wp_btag=0.2, do_jetid=False, do_isomuon=False):
         self._wp_btag = wp_btag
         self._do_jetid = do_jetid
@@ -26,16 +26,18 @@ class CutflowProcessor(processor.ProcessorABC):
             "events": defaultdict(int),
             "passtrig": defaultdict(int),
             "cutflow": (
-                            Hist.new.StrCategory(
-                                [], name="dataset", label="Dataset", growth=True
-                            ).IntCategory(
+                            Hist.new.IntCategory(
                                 [], name="cat", label="Category", growth=True
                             ).Reg(
                                 30, 40, 220, name="msoftdrop", label=r"msoftdrop"
-#                             ).Reg(
-#                                 50, 150, 700, name="pt", label=r"$p_T$"
                             ).Reg(
                                 30, 0, 1, name="pn_Hbb", label=r"H(bb) vs QCD score"
+                            ).StrCategory(
+                                 [], name="region", label="Region", growth=True
+#                            ).Variable(
+#                                [0, 0.5, 0.15, 0.2, 0.25], name="trackIso", label=r"trackIso"
+#                            ).Variable(
+#                                [0, 0.25, 0.5, 0.75, 1], name="trk_dz", label=r"Track dz"
                             ).IntCategory(
                                 [], name="cut", label="Cut Idx", growth=True
                             ).Weight()
@@ -90,68 +92,28 @@ class CutflowProcessor(processor.ProcessorABC):
 #                                 [], name="cat", label="Category", growth=True
 #                             ).Weight()
 #                         ),
-#             "ak4bjet": (
-#                             Hist.new.StrCategory(
-#                                 [], name="dataset", label="Dataset", growth=True
-#                             ).StrCategory(
-#                                 [], name="region", label="Region", growth=True
-#                             ).Reg(
-#                                 30, 0, 50, name="njets", label=r"Number of AK4 b-jet in same hem. as muon"
-#                             ).Reg(
-#                                 30, 0, 1.1, name="pn_b_1", label=r"Leading AK4 b vs g score"
-#                             ).IntCategory(
-#                                 [], name="cat", label="Category", growth=True
-#                             ).Weight()
-#                         ),
-            "ak8jet_neu": (
-                            Hist.new.StrCategory(
-                                [], name="dataset", label="Dataset", growth=True
-                            ).StrCategory(
-                                [], name="region", label="Region", growth=True
-#                             ).Reg(
-#                                 30, 0, 10, name="njets", label=r"Number of AK8 in opp. hem. as muon"
-#                             ).Reg(
-#                                 30, 0, 400, name="pt", label=r"Leading AK8 $p_T$"
-                            ).Reg(
-                                30, 40, 220, name="msoftdrop", label=r"msoftdrop"
-                            ).Reg(
-                               30, 0, 1.1, name="neHEF", label=r"Leading AK8 neHEF"
-                            ).Reg(
-                               30, 0, 1.1, name="neEmEF", label=r"Leading AK8 neEmEF"
-                            ).IntCategory(
-                                [], name="cat", label="Category", growth=True
-                            ).Weight()
-                        ),
-              "ak8jet_mu": (
-                            Hist.new.StrCategory(
-                                [], name="dataset", label="Dataset", growth=True
-                            ).StrCategory(
-                                [], name="region", label="Region", growth=True
-                            ).Reg(
-                                30, 40, 220, name="msoftdrop", label=r"msoftdrop"
-                            ).Reg(
-                               30, 0, 1.1, name="muEmEF", label=r"Leading AK8 muEmEF"
-                            ).Reg(
-                               30, 0, 1.1, name="chHEF", label=r"Leading AK8 chHEF"
-                            ).IntCategory(
-                                [], name="cat", label="Category", growth=True
-                            ).Weight()
-                        ),
-              "ak8jet_ch": (
-                            Hist.new.StrCategory(
-                                [], name="dataset", label="Dataset", growth=True
-                            ).StrCategory(
-                                [], name="region", label="Region", growth=True
-                            ).Reg(
-                                30, 40, 220, name="msoftdrop", label=r"msoftdrop"
-                            ).Reg(
-                               30, 0, 60, name="nCh", label=r"Leading AK8 nCh"
-                            ).Reg(
-                               30, 0, 1.1, name="chEmEF", label=r"Leading AK8 chEmEF"
-                            ).IntCategory(
-                                [], name="cat", label="Category", growth=True
-                            ).Weight()
-                        ),
+             "ak4bjet": (
+                             Hist.new.StrCategory(
+                                 [], name="region", label="Region", growth=True
+                             ).Reg(
+                                 30, 0, 50, name="njets", label=r"Number of AK4 b-jet in same hem. as muon"
+                             ).Reg(
+                                 30, 0, 1.1, name="pn_b_1", label=r"Leading AK4 b vs g score"
+                             ).IntCategory(
+                                 [], name="cat", label="Category", growth=True
+                             ).Weight()
+                         ),
+             "ak8jet": (
+                             Hist.new.StrCategory(
+                                 [], name="region", label="Region", growth=True
+                             ).Reg(
+                                 30, 0, 4, name="dr", label=r"dR(proxy, leading muon)"
+                             ).Reg(
+                                 30, 0, 1, name="pn_Hbb", label=r"H(bb) vs QCD score"
+                             ).IntCategory(
+                                 [], name="cat", label="Category", growth=True
+                             ).Weight()
+                         ),
         }
            
         
@@ -223,8 +185,8 @@ class CutflowProcessor(processor.ProcessorABC):
             (events.ScoutingMuon.pt > 55)
             & (abs(events.ScoutingMuon.eta) < 2.4)
             & (abs(events.ScoutingMuon.trk_dxy) < 0.2)
-            & (abs(events.ScoutingMuon.trackIso) < 0.15)
-            & (abs(events.ScoutingMuon.trk_dz) < 0.5)
+            #& (abs(events.ScoutingMuon.trackIso) < 0.15)
+            #& (abs(events.ScoutingMuon.trk_dz) < 0.5)
             #& (events.ScoutingMuon["type"] == 2)
             & (events.ScoutingMuon.normchi2 < 10)
             & (events.ScoutingMuon.nValidRecoMuonHits > 0)
@@ -252,6 +214,9 @@ class CutflowProcessor(processor.ProcessorABC):
        
         # Trk_dz requirement
         selection.add('trk_dz', (leadingmuon.trk_dz < 0.5))
+
+        # trackIso requirement
+        selection.add('trackIso', (leadingmuon.trackIso < 0.15))
  
         # Same. hem. AK4 b-jet
         dphi = abs(jets.delta_phi(leadingmuon))
@@ -272,7 +237,8 @@ class CutflowProcessor(processor.ProcessorABC):
             proxy = self.category(events, proxy)
             
         regions = {
-            'all': ['trigger','fatjetpt','met','onemuon','leptonicW','onebjet','onefatjet','trk_dz'],
+            'trk_dz': ['trigger','fatjetpt','met','onemuon','leptonicW','trk_dz','trackIso','onebjet','onefatjet'],
+            'onebjet': ['trigger','fatjetpt','met','onemuon','leptonicW','onebjet','onefatjet','trk_dz','trackIso'],
             'noselection' : [],
         }
         
@@ -292,7 +258,8 @@ class CutflowProcessor(processor.ProcessorABC):
             weight = weights.weight()[cut]
             
             output['cutflow'].fill(
-                dataset=dataset,
+                region=region,
+#                dataset=dataset,
                 cat=normalize(proxy.cat, cut) if not isRealData else -1,
                 msoftdrop=normalize(proxy.msoftdrop, cut),
 #                 pt=normalize(proxy.pt, cut),
@@ -307,7 +274,8 @@ class CutflowProcessor(processor.ProcessorABC):
                 weight = weights.weight()[cut]
                 
                 output['cutflow'].fill(
-                    dataset=dataset,
+                    region=region,
+#                    dataset=dataset,
                     cat=normalize(proxy.cat, cut) if not isRealData else -1,
                     msoftdrop=normalize(proxy.msoftdrop, cut),
 #                     pt=normalize(proxy.pt, cut),
@@ -395,8 +363,8 @@ class CutflowProcessor(processor.ProcessorABC):
                 weight=weights.weight()[cut],
             )
             
-        for region in regions:
-            fill(region)
+        #for region in regions:
+        #    fill(region)
 
         return output
     

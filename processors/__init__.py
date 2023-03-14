@@ -3,6 +3,11 @@ from .hist import HistProcessor
 from .cutflow import CutflowProcessor
 from .zbb import ZbbProcessor
 from .pv import PVProcessor
+from .jetid import JetIDProcessor
+from .muoniso import MuonIsoProcessor
+from .btag import BTagProcessor
+from .nminus1 import Nminus1Processor
+from .debug import DebugProcessor
 
 __all__ = [
     '__version__',
@@ -10,4 +15,9 @@ __all__ = [
     'CutflowProcessor',
     'ZbbProcessor',
     'PVProcessor',
+    'JetIDProcessor',
+    'MuonIsoProcessor',
+    'BTagProcessor',
+    'Nminus1Processor',
+    'DebugProcessor',
 ]
