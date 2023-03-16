@@ -14,10 +14,11 @@ from coffea.analysis_tools import Weights, PackedSelection
 from collections import defaultdict
 
 class Nminus1Processor(processor.ProcessorABC):
-    def __init__(self, wp_btag=0.2, do_jetid=False, do_isomuon=False):
+    def __init__(self, wp_btag=0.2, do_jetid=False, do_isomuon=False, is_postEE=True):
         self._wp_btag = wp_btag
         self._do_jetid = do_jetid
         self._do_isomuon = do_isomuon
+        self._is_postEE = is_postEE
         
     @property
     def accumulator(self):
@@ -123,6 +124,7 @@ class Nminus1Processor(processor.ProcessorABC):
         dataset = events.metadata['dataset']
         
         isRealData = not hasattr(events, "genWeight")
+        isTTbar = "TTto" in dataset
         
         selection = PackedSelection()
         weights = Weights(len(events), storeIndividual=True)
@@ -132,7 +134,7 @@ class Nminus1Processor(processor.ProcessorABC):
         if not isRealData:
             output['sumw'][dataset] += ak.sum(events.genWeight)
             weights.add('genweight', events.genWeight)
-            
+
         if len(events) == 0:
             return output
         
@@ -169,10 +171,19 @@ class Nminus1Processor(processor.ProcessorABC):
         )
         
         # trigger
-        selection.add("trigger",
-                      (events.HLT["Mu50"]
-                      & events.DST["Run3_PFScoutingPixelTracking"])
-        )
+        trigger = np.zeros(len(events), dtype='bool')
+        if self._is_postEE:
+            if "HLTMuon_Run3_PFScoutingPixelTracking" in events.DST.fields:
+                 trigger = (
+                            (events.HLT["Mu50"]
+                            & events.DST["HLTMuon_Run3_PFScoutingPixelTracking"])
+                 )
+        else:
+            trigger = (
+                       (events.HLT["Mu50"]
+                       & events.DST["Run3_PFScoutingPixelTracking"])
+            )
+        selection.add("trigger", trigger)
         
         output['passtrig'][dataset] += ak.sum(events.HLT["Mu50"])
         
@@ -233,7 +244,7 @@ class Nminus1Processor(processor.ProcessorABC):
 
         proxy = ak.firsts(fatjets[(is_away)])
         
-        if not isRealData:
+        if isTTbar:
             proxy = self.category(events, proxy)
             
         regions = {
@@ -260,7 +271,7 @@ class Nminus1Processor(processor.ProcessorABC):
             output['cutflow'].fill(
                 dataset=dataset,
                 region=region,
-                cat=normalize(proxy.cat, cut) if not isRealData else -1,
+                cat=normalize(proxy.cat, cut) if isTTbar else -1,
                 msoftdrop=normalize(proxy.msoftdrop, cut),
                 pn_Hbb=normalize(proxy.pn_Hbb, cut),
                 cut=0,
@@ -275,7 +286,7 @@ class Nminus1Processor(processor.ProcessorABC):
                 output['cutflow'].fill(
                     dataset=dataset,
                     region=region,
-                    cat=normalize(proxy.cat, cut) if not isRealData else -1,
+                    cat=normalize(proxy.cat, cut) if isTTbar else -1,
                     msoftdrop=normalize(proxy.msoftdrop, cut),
                     pn_Hbb=normalize(proxy.pn_Hbb, cut),
                     cut=i+1,
@@ -291,7 +302,7 @@ class Nminus1Processor(processor.ProcessorABC):
                 dataset=dataset,
                 region=region,
                 hltmu50=normalize(events.HLT["Mu50"], cut),
-                cat=normalize(proxy.cat, cut) if not isRealData else -1,
+                cat=normalize(proxy.cat, cut) if isTTbar else -1,
                 weight=weight,
             )
 
@@ -299,7 +310,7 @@ class Nminus1Processor(processor.ProcessorABC):
                 dataset=dataset,
                 region=region,
                 pt=normalize(met.pt, cut),
-                cat=normalize(proxy.cat, cut) if not isRealData else -1,
+                cat=normalize(proxy.cat, cut) if isTTbar else -1,
                 weight=weight,
             )
            
@@ -309,7 +320,7 @@ class Nminus1Processor(processor.ProcessorABC):
                 pt=normalize(leadingmuon.pt, cut) if region != "noselection" else normalize(ak.firsts(events.ScoutingMuon).pt, cut),
                 trk_dz=normalize(leadingmuon.trk_dz, cut) if region != "noselection" else normalize(ak.firsts(events.ScoutingMuon).trk_dz, cut),
                 trackIso=normalize(leadingmuon.trackIso, cut) if region != "noselection" else normalize(ak.firsts(events.ScoutingMuon).trackIso, cut),
-                cat=normalize(proxy.cat, cut) if not isRealData else -1,
+                cat=normalize(proxy.cat, cut) if isTTbar else -1,
                 weight=weights.weight()[cut],
             )
            
@@ -317,7 +328,7 @@ class Nminus1Processor(processor.ProcessorABC):
                 dataset=dataset,
                 region=region,
                 pt=normalize(leptonicW.pt, cut),
-                cat=normalize(proxy.cat, cut) if not isRealData else -1,
+                cat=normalize(proxy.cat, cut) if isTTbar else -1,
                 weight=weights.weight()[cut],
             )
            
@@ -326,7 +337,7 @@ class Nminus1Processor(processor.ProcessorABC):
                 region=region,
                 njets=normalize(ak.num(jetsamehemisp), cut),
                 pn_b_1=normalize(ak.firsts(jetsamehemisp)["pn_b"], cut),
-                cat=normalize(proxy.cat, cut) if not isRealData else -1,
+                cat=normalize(proxy.cat, cut) if isTTbar else -1,
                 weight=weights.weight()[cut],
             )
 
@@ -335,7 +346,7 @@ class Nminus1Processor(processor.ProcessorABC):
                 region=region,
                 pt=normalize(proxy.pt, cut) if region != "noselection" else normalize(ak.firsts(fatjets).pt, cut),
                 pn_Hbb=normalize(proxy.pn_Hbb, cut) if region != "noselection" else normalize(ak.firsts(fatjets).pn_Hbb, cut),
-                cat=normalize(proxy.cat, cut) if not isRealData else -1,
+                cat=normalize(proxy.cat, cut) if isTTbar else -1,
                 weight=weight,
             )
             
