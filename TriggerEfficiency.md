@@ -24,13 +24,19 @@ voms-proxy-init -voms cms -valid 192:00
 git clone git@github.com:alintulu/coffea.git -b scouting
 ```
 
-4. Start singularity image
+4. Clone this repository
+
+```
+git clone git@github.com:alintulu/PNCalibration.git
+```
+
+5. Start singularity image
 
 ```
 ./shell
 ```
 
-5. Install coffea version with ScoutingNanoAOD
+6. Install coffea version with ScoutingNanoAOD
 
 ```
 cd coffea
