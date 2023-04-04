@@ -1,0 +1,11 @@
+{
+  "Run2022E": [
+    "root://eoscms.cern.ch//eos/cms/store/group/ml/Tagging4ScoutingHackathon/Adelina/ScoutingPFRun3/Run2022E-HLT_Mu50/230315_124158/0000/scoutingnano_10.root",
+    "root://eoscms.cern.ch//eos/cms/store/group/ml/Tagging4ScoutingHackathon/Adelina/ScoutingPFRun3/Run2022E-HLT_Mu50/230315_124158/0000/scoutingnano_100.root",
+    "root://eoscms.cern.ch//eos/cms/store/group/ml/Tagging4ScoutingHackathon/Adelina/ScoutingPFRun3/Run2022E-HLT_Mu50/230315_124158/0000/scoutingnano_101.root",
+    "root://eoscms.cern.ch//eos/cms/store/group/ml/Tagging4ScoutingHackathon/Adelina/ScoutingPFRun3/Run2022E-HLT_Mu50/230315_124313/0002/scoutingnano_2560.root",
+    "root://eoscms.cern.ch//eos/cms/store/group/ml/Tagging4ScoutingHackathon/Adelina/ScoutingPFRun3/Run2022E-HLT_Mu50/230315_124313/0002/scoutingnano_2561.root",
+    "root://eoscms.cern.ch//eos/cms/store/group/ml/Tagging4ScoutingHackathon/Adelina/ScoutingPFRun3/Run2022E-HLT_Mu50/230315_124313/0002/scoutingnano_2562.root",
+    "root://eoscms.cern.ch//eos/cms/store/group/ml/Tagging4ScoutingHackathon/Adelina/ScoutingPFRun3/Run2022E-HLT_Mu50/230315_124313/0002/scoutingnano_2563.root"
+  ]
+}
