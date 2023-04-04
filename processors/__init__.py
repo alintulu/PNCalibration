@@ -8,6 +8,8 @@ from .muoniso import MuonIsoProcessor
 from .btag import BTagProcessor
 from .nminus1 import Nminus1Processor
 from .debug import DebugProcessor
+from .trigger import TriggerProcessor
+from .jer import JERProcessor
 
 __all__ = [
     '__version__',
@@ -20,4 +22,6 @@ __all__ = [
     'BTagProcessor',
     'Nminus1Processor',
     'DebugProcessor',
+    'TriggerProcessor',
+    'JERProcessor',
 ]
