@@ -16,34 +16,50 @@ from coffea.lookup_tools import extractor
 from coffea.jetmet_tools import JECStack, CorrectedJetsFactory
 from coffea.jetmet_tools import FactorizedJetCorrector, JetCorrectionUncertainty
 
-class JERProcessor(processor.ProcessorABC):
-    def __init__(self, triggers=[]):
-        commonaxes = (
-            hist.axis.Regular(18, 100, 1000, name="pt_ave", label=r"Average $p_T$"),
-            #hist.axis.Regular(20, 0, 1, name="pt_third", label=r"(2 $\times$ $p_{T,3}$) / ($p_{T,1}$ + $p_{T,2}$)"),
-        )
+class DiffProcessor(processor.ProcessorABC):
+    def __init__(self, triggers):
 
         self._triggers = triggers
         
         self._output = {
                 "nevents": 0,
-                "scouting": Hist(
-                    *commonaxes,
-                    hist.axis.Regular(100, -0.5, 0.5, name="asymmetry", label="Asymmetry")
+                "pt": Hist(
+                    hist.axis.Regular(100, 100, 1000, name="hlt", label=r"$p_{T}^{HLT}$"),
+                    hist.axis.Regular(100, 100, 1000, name="reco", label=r"$p_{T}^{RECO}$"),
                 ),
-                "scouting_mean": Hist(
-                    *commonaxes,
+                "pt_mean": Hist(
+                    hist.axis.Regular(18, 100, 1000, name="hlt", label=r"$p_{T}^{HLT}$"),
                     storage=hist.storage.Mean()
                 ),
-                "offline_mean": Hist(
-                    *commonaxes,
+                "mass": Hist(
+                    hist.axis.Regular(100, 0, 300, name="hlt", label=r"$mass^{HLT}$"),
+                    hist.axis.Regular(100, 0, 300, name="reco", label=r"$mass^{RECO}$"),
+                ),
+                "mass_mean": Hist(
+                    hist.axis.Regular(18, 100, 1000, name="hlt", label=r"$p_{T}^{HLT}$"),
                     storage=hist.storage.Mean()
                 ),
-                "offline": Hist(
-                    *commonaxes,
-                    hist.axis.Regular(100, -0.5, 0.5, name="asymmetry", label="Asymmetry")
+                "eta": Hist(
+                    hist.axis.Regular(50, 0, 3, name="hlt", label=r"$\eta^{HLT}$"),
+                    hist.axis.Regular(50, 0, 3, name="reco", label=r"$\eta^{RECO}$"),
                 ),
+                "eta_mean": Hist(
+                    hist.axis.Regular(18, 100, 1000, name="hlt", label=r"$p_{T}^{HLT}$"),
+                    storage=hist.storage.Mean()
+                ),
+                "phi": Hist(
+                    hist.axis.Regular(50, 0, 4, name="hlt", label=r"$\phi^{HLT}$"),
+                    hist.axis.Regular(50, 0, 4, name="reco", label=r"$\phi^{RECO}$"),
+                ),
+                "phi_mean": Hist(
+                    hist.axis.Regular(18, 100, 1000, name="hlt", label=r"$p_{T}^{HLT}$"),
+                    storage=hist.storage.Mean()
+                ),
+
             }
+        
+        self._pt_type = "pt_jec"
+        self._mass_type = "mass_jec"
         
         ext = extractor()
         ext.add_weight_sets([
@@ -95,6 +111,7 @@ class JERProcessor(processor.ProcessorABC):
 
             events = events[reftrigger]
 
+
         def apply_jec(jets, rho_name):
             
             jets["pt_raw"] = jets["pt"]
@@ -106,7 +123,6 @@ class JERProcessor(processor.ProcessorABC):
 
         # scouting        
         jets_s = apply_jec(events.ScoutingJet, "ScoutingRho")
-        pt_type = "pt_jec"
         #jets_s = events.ScoutingJet
         jets_s = jets_s[
             (abs(jets_s.eta) < 2.5)
@@ -139,7 +155,7 @@ class JERProcessor(processor.ProcessorABC):
             (ak.num(jets_s) > 2)
             & (ak.num(jets_o) > 2)
         ][:,:3]
-        
+
         def require_dijets(jets, pt_type="pt"):
 
             dijets = (
@@ -148,7 +164,7 @@ class JERProcessor(processor.ProcessorABC):
             )
 
             return dijets
-        
+    
         def run_deltar_matching(obj1, obj2, radius=0.4): # NxM , NxG arrays
             _, obj2 = ak.unzip(ak.cartesian([obj1, obj2], nested=True)) # Obj2 is now NxMxG
             obj2['dR'] = obj1.delta_r(obj2)  # Calculating delta R
@@ -158,53 +174,42 @@ class JERProcessor(processor.ProcessorABC):
             obj2 = obj2[s_index == t_index] # Pairwise comparison to keep smallest delta R
 
             # Cutting on delta R
-            obj2 = obj2[obj2.dR < radius] # Additional cut on delta R, now a NxMxG' array 
+            obj2 = obj2[obj2.dR < radius] #Additional cut on delta R, now a NxMxG' array 
             return obj2
-        
-        req_dijets_s = require_dijets(jets_ss, "pt_jec")
+    
+        req_dijets_s = require_dijets(jets_ss, self._pt_type)
         req_dijets_o = require_dijets(jets_oo)
 
-        dijets_s = jets_ss[(req_dijets_s) & (req_dijets_o)][:,:3]
-        dijets_o = jets_oo[(req_dijets_s) & (req_dijets_o)][:,:3]
+        dijets_s = jets_ss[(req_dijets_s) & (req_dijets_o)][:,:2]
+        dijets_o = jets_oo[(req_dijets_s) & (req_dijets_o)][:,:2]
         
-#         dijets_o_dr = ak.flatten(run_deltar_matching(dijets_s, dijets_o, 0.2), axis=2)
-#         dijet_s_dr = dijets_s[(ak.num(dijets_o_dr) > 1)]
-#         dijet_o_dr = dijets_o_dr[(ak.num(dijets_o_dr) > 1)]
+        dijets_o_dr = ak.flatten(run_deltar_matching(dijets_s, dijets_o, 0.2), axis=2)
+        dijet_s_dr = dijets_s[(ak.num(dijets_o_dr) > 1)]
+        dijet_o_dr = dijets_o_dr[(ak.num(dijets_o_dr) > 1)]
         
-#         def get_asymmetry(jets, pt_type="pt"):
-            
-#             shuffle = random.choices([-1, 1], k=len(jets[:,0]))
-#             shuffle_opp = [s * -1 for s in shuffle]
-            
-#             asymmetry = (shuffle * jets[:,0][pt_type] + shuffle_opp * jets[:,1][pt_type]) / (jets[:,0][pt_type] + jets[:,1][pt_type])
-#             pt_ave = (jets[:,0][pt_type] + jets[:,1][pt_type]) / 2
-#             pt_third = (2 * jets[:,2][pt_type]) / (jets[:,0][pt_type] + jets[:,1][pt_type])
+        def fill(hlt_jets, reco_jets, var):
 
-#             return asymmetry, pt_ave, pt_third
-
-#         a_s, pt_s = get_asymmetry(dijet_s_dr, "pt_jec")
-#         a_o, pt_o = get_asymmetry(dijet_o_dr)
-
-        
-        def fill_asymmetry(jets, rec, pt_type="pt"):
+            var_tmp = var
+            if var == "pt":
+                var_tmp = self._pt_type
+            if var == "mass":
+                var_tmp = self._mass_type
             
-            for i, j in [(0, 1), (1, 0)]:
-                
-                asymmetry = (jets[:, i][pt_type] - jets[:, j][pt_type]) / (jets[:, i][pt_type] + jets[:, j][pt_type])
-                pt_ave = (jets[:, i][pt_type] + jets[:, j][pt_type]) / 2
-        
-                self._output[rec + "_mean"].fill(
-                    sample = asymmetry,
-                    pt_ave = pt_ave,
+            for i in [0, 1]:
+
+                self._output[var].fill(
+                    hlt = abs(hlt_jets[:, i][var_tmp]),
+                    reco = abs(reco_jets[:, i][var]),
                 )
 
-                self._output[rec].fill(
-                    asymmetry = asymmetry,
-                    pt_ave = pt_ave,
+                self._output[var + "_mean"].fill(
+                    sample = abs(hlt_jets[:, i][var_tmp]) / abs(reco_jets[:, i][var]),
+                    hlt = hlt_jets[:, i][self._pt_type],
                 )
-                
-        fill_asymmetry(dijets_s, "scouting", "pt_jec")
-        fill_asymmetry(dijets_o, "offline")
+
+        for var in ["pt", "mass", "eta", "phi"]:
+
+            fill(dijet_s_dr, dijet_o_dr, var) 
         
         return self._output
 

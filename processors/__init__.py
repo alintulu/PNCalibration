@@ -10,6 +10,8 @@ from .nminus1 import Nminus1Processor
 from .debug import DebugProcessor
 from .trigger import TriggerProcessor
 from .jer import JERProcessor
+from .jes import JESProcessor
+from .diff import DiffProcessor
 
 __all__ = [
     '__version__',
@@ -24,4 +26,6 @@ __all__ = [
     'DebugProcessor',
     'TriggerProcessor',
     'JERProcessor',
+    'JESProcessor',
+    'DiffProcessor',
 ]

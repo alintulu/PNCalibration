@@ -36,7 +36,11 @@ class Nminus1Processor(processor.ProcessorABC):
                             ).Reg(
                                 30, 40, 220, name="msoftdrop", label=r"msoftdrop"
                             ).Reg(
-                                30, 0, 1, name="pn_Hbb", label=r"H(bb) vs QCD score"
+                                50, 0, 1.1, name="tau21", label=r"tau21 score"
+                            ).Reg(
+                                50, 0, 1.1, name="n2b1", label=r"n2b1 score"
+#                             ).Reg(
+#                                 50, 0, 1.1, name="pn_Hbb", label=r"H(bb) vs QCD score"
                             ).IntCategory(
                                 [], name="cut", label="Cut Idx", growth=True
                             ).Weight()
@@ -108,9 +112,11 @@ class Nminus1Processor(processor.ProcessorABC):
                              ).StrCategory(
                                  [], name="region", label="Region", growth=True
                              ).Reg(
-                                 30, 0, 400, name="pt", label=r"Leptonic W $p_T$"
+                                 30, 0, 400, name="pt", label=r"Leading AK8 $p_T$"
                              ).Reg(
-                                 30, 0, 1.1, name="pn_Hbb", label=r"Leading AK8 H(bb) vs QCD"
+                                 50, 0, 1.1, name="pn_Hbb", label=r"Leading AK8 H(bb) vs QCD"
+                             ).Reg(
+                                 30, 0, 220, name="msoftdrop", label=r"msoftdrop"
                              ).IntCategory(
                                  [], name="cat", label="Category", growth=True
                              ).Weight()
@@ -153,7 +159,12 @@ class Nminus1Processor(processor.ProcessorABC):
             0, 
             (fatjets.particleNet_prob_Hbb / (fatjets.particleNet_prob_Hbb + fatjets.particleNet_prob_QCD))
         )
-        
+        fatjets["tau21"] = ak.where(
+            fatjets["tau1"] == 0, 
+            0, 
+            (fatjets["tau2"] / fatjets["tau1"])
+        )
+
         jets = events.ScoutingJet
 #         if self._do_jetid:
 #             jets = jets[
@@ -228,6 +239,7 @@ class Nminus1Processor(processor.ProcessorABC):
        
         # Trk_dz requirement
         selection.add('trk_dz', (leadingmuon.trk_dz < 0.5))
+        selection.add('trk_dxy', (leadingmuon.trk_dxy < 0.2))
  
         # Same. hem. AK4 b-jet
         dphi = abs(jets.delta_phi(leadingmuon))
@@ -242,13 +254,13 @@ class Nminus1Processor(processor.ProcessorABC):
         nfatjets = ak.sum(is_away, axis=1)
         selection.add('onefatjet', (nfatjets > 0))
 
-        proxy = ak.firsts(fatjets[(is_away)])
+        proxy = ak.firsts(fatjets[(is_away) & (fatjets.pt > 200)])
         
         if isTTbar:
             proxy = self.category(events, proxy)
             
         regions = {
-            'all': ['trigger','fatjetpt','met','onemuon','leptonicW','onebjet','onefatjet','trk_dz'],
+            'all': ['trigger','fatjetpt','met','onemuon','leptonicW','onebjet','onefatjet'], #,'trk_dxy','trk_dz'],
 #             'nobtag': ['trigger','fatjetpt','met','onemuon','leptonicW'], #,'onebjet','onefatjet','trk_dz'],
             'noselection' : [],
         }
@@ -273,7 +285,9 @@ class Nminus1Processor(processor.ProcessorABC):
                 region=region,
                 cat=normalize(proxy.cat, cut) if isTTbar else -1,
                 msoftdrop=normalize(proxy.msoftdrop, cut),
-                pn_Hbb=normalize(proxy.pn_Hbb, cut),
+                tau21=normalize(proxy["tau21"], cut),
+                n2b1=normalize(proxy["n2b1"], cut),
+#                 pn_Hbb=normalize(proxy.pn_Hbb, cut),
                 cut=0,
                 weight=weight,
             )
@@ -288,7 +302,9 @@ class Nminus1Processor(processor.ProcessorABC):
                     region=region,
                     cat=normalize(proxy.cat, cut) if isTTbar else -1,
                     msoftdrop=normalize(proxy.msoftdrop, cut),
-                    pn_Hbb=normalize(proxy.pn_Hbb, cut),
+                    tau21=normalize(proxy["tau21"], cut),
+                    n2b1=normalize(proxy["n2b1"], cut),
+#                     pn_Hbb=normalize(proxy.pn_Hbb, cut),
                     cut=i+1,
                     weight=weight,
                 )
@@ -346,12 +362,13 @@ class Nminus1Processor(processor.ProcessorABC):
                 region=region,
                 pt=normalize(proxy.pt, cut) if region != "noselection" else normalize(ak.firsts(fatjets).pt, cut),
                 pn_Hbb=normalize(proxy.pn_Hbb, cut) if region != "noselection" else normalize(ak.firsts(fatjets).pn_Hbb, cut),
+                msoftdrop=normalize(proxy.msoftdrop, cut) if region != "noselection" else normalize(ak.firsts(fatjets).msoftdrop, cut),
                 cat=normalize(proxy.cat, cut) if isTTbar else -1,
                 weight=weight,
             )
             
 #         for region in regions:
-#             fill(region)
+#              fill(region)
 
         return output
     
