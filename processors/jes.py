@@ -17,9 +17,19 @@ from coffea.jetmet_tools import JECStack, CorrectedJetsFactory
 from coffea.jetmet_tools import FactorizedJetCorrector, JetCorrectionUncertainty
 
 class JESProcessor(processor.ProcessorABC):
-    def __init__(self, triggers=[]):
+    def __init__(self, triggers=[], lowPt=False):
+
+        if lowPt:
+            n, low, high = 10, 0, 500
+        else:
+            n, low, high = 30, 500, 2000
+
         commonaxes = (
-            hist.axis.Regular(20, 0, 1000, name="pt", label=r"$p_{T}^{RECO,tag}$"),
+            hist.axis.Regular(n, low, high, name="pt", label=r"$p_{T}^{RECO,tag}$"),
+            hist.axis.StrCategory([], name="dataset", label="Dataset name", growth=True),
+            #hist.axis.StrCategory([], name="n", label="Number of jets", growth=True),
+            hist.axis.Variable([0, 1.3, 2.5], name="eta1", label=r"|$\eta_{1}$|"),
+            hist.axis.Variable([0, 1.3, 2.5], name="eta2", label=r"|$\eta_{2}$|"),
         )
         
         self._triggers = triggers
@@ -51,21 +61,25 @@ class JESProcessor(processor.ProcessorABC):
                     storage=hist.storage.Mean()
                 ),
                 "h4": Hist(
-                    hist.axis.Regular(20, 0, 1000, name="pt_reco", label=r"$p_{T}^{RECO,tag}$"),
-                    hist.axis.Regular(50, 0, 1000, name="pt_hlt", label=r"$p_{T}^{HLT,probe}$"),
+                    *commonaxes,
+                    hist.axis.Regular(50, 200, 2000, name="pt_hlt", label=r"$p_{T}^{HLT,probe}$"),
                 ),
                 "h4_mean": Hist(
-                    hist.axis.Regular(20, 0, 1000, name="pt_reco", label=r"$p_{T}^{RECO,tag}$"),
+                    *commonaxes,
                     storage=hist.storage.Mean()
                 ),
-#                 "h5": Hist(
-#                     hist.axis.Regular(20, 0, 1000, name="pt", label=r"$p_{T}^{HLT,probe}$"),
-#                     hist.axis.Regular(100, 0, 2, name="ratio", label=r"$p_{T}^{HLT,probe}$ / $p_{T}^{RECO,probe}$"),
-#                 ),
-#                 "h5_mean": Hist(
-#                     hist.axis.Regular(20, 0, 1000, name="pt", label=r"$p_{T}^{HLT,probe}$"),
-#                     storage=hist.storage.Mean()
-#                 ),
+#                  "h5": Hist(
+#                      hist.axis.Regular(20, 0, 1000, name="pt", label=r"$p_{T}^{RECO}$"),
+#                      hist.axis.Regular(100, 0, 2, name="ratio", label=r"$p_{T}^{HLT}$ / $p_{T}^{RECO}$"),
+#                      hist.axis.StrCategory([], name="dataset", label="Dataset name", growth=True),
+#                      hist.axis.StrCategory([], name="n", label="Number of jets", growth=True),
+#                  ),
+#                  "h5_mean": Hist(
+#                      hist.axis.Regular(20, 0, 1000, name="pt", label=r"$p_{T}^{RECO}$"),
+#                      hist.axis.StrCategory([], name="dataset", label="Dataset name", growth=True),
+#                      hist.axis.StrCategory([], name="n", label="Number of jets", growth=True),
+#                      storage=hist.storage.Mean()
+#                  ),
 #                 "hlt_probe_mean": Hist(
 #                     hist.axis.Regular(20, 0, 1000, name="pt", label=r"$p_{T}^{HLT,probe}$"),
 #                     storage=hist.storage.Mean()
@@ -77,6 +91,7 @@ class JESProcessor(processor.ProcessorABC):
   
             }
         
+        # scouting JEC
         ext = extractor()
         ext.add_weight_sets([
             "* * data/jec/Run3Summer21_V2_MC_L1FastJet_AK4PFchsHLT.txt",
@@ -99,7 +114,32 @@ class JESProcessor(processor.ProcessorABC):
         name_map['massRaw'] = 'mass_raw'
         name_map['Rho'] = 'rho'
         
-        self._jet_factory = CorrectedJetsFactory(name_map, jec_stack)
+        self._jet_factory_scouting = CorrectedJetsFactory(name_map, jec_stack)
+        
+        # offline JEC
+        ext = extractor()
+        ext.add_weight_sets([
+            "* * data/jec/Winter22Run3_V2_MC_L1FastJet_AK4PFPuppi.txt",
+            "* * data/jec/Winter22Run3_V2_MC_L2Relative_AK4PFPuppi.txt",
+            "* * data/jec/Winter22Run3_V2_MC_L3Absolute_AK4PFPuppi.txt",
+        ])
+        ext.finalize()
+        evaluator = ext.make_evaluator()
+
+        jec_stack_names = evaluator.keys()
+        jec_inputs = {name: evaluator[name] for name in jec_stack_names}
+        jec_stack = JECStack(jec_inputs)
+        
+        name_map = jec_stack.blank_name_map
+        name_map['JetPt'] = 'pt'
+        name_map['JetMass'] = 'mass'
+        name_map['JetEta'] = 'eta'
+        name_map['JetA'] = 'area'
+        name_map['ptRaw'] = 'pt_raw'
+        name_map['massRaw'] = 'mass_raw'
+        name_map['Rho'] = 'rho'
+        
+        self._jet_factory_offline = CorrectedJetsFactory(name_map, jec_stack)
 
     def process(self, events):
         
@@ -130,20 +170,27 @@ class JESProcessor(processor.ProcessorABC):
 
         def apply_jec(jets, rho_name):
             
-            jets["pt_raw"] = jets["pt"]
-            jets["mass_raw"] = jets["mass"]
-            jets['rho'] = ak.broadcast_arrays(events[rho_name], jets.pt)[0]
-            
-            corrected_jets = self._jet_factory.build(jets, lazy_cache=events.caches[0])
+            if "Scouting" in rho_name:
+                
+                jets["pt_raw"] = jets["pt"]
+                jets["mass_raw"] = jets["mass"]
+                jets['rho'] = ak.broadcast_arrays(events[rho_name], jets.pt)[0]
+                corrected_jets = self._jet_factory_scouting.build(jets, lazy_cache=events.caches[0])
+                
+            else:
+                
+                jets['pt_raw'] = (1 - jets['rawFactor']) * jets['pt']
+                jets['mass_raw'] = (1 - jets['rawFactor']) * jets['mass']
+                jets['rho'] = ak.broadcast_arrays(events.Rho[rho_name], jets.pt)[0]
+                
+                corrected_jets = self._jet_factory_offline.build(jets, lazy_cache=events.caches[0])
+                
             return corrected_jets
 
-        # scouting        
         jets_s = apply_jec(events.ScoutingJet, "ScoutingRho")
         pt_type = "pt_jec"
-        #jets_s = events.ScoutingJet
         jets_s = jets_s[
             (abs(jets_s.eta) < 2.5)
-            #& (jets_s.pt > 20)
             & (jets_s.neHEF < 0.9)
             & (jets_s.neEmEF < 0.9)
             & (jets_s.muEmEF < 0.8)
@@ -152,10 +199,9 @@ class JESProcessor(processor.ProcessorABC):
             & (jets_s.chEmEF < 0.8)
         ]
 
-        jets_o = events.JetCHS
+        jets_o = apply_jec(events.Jet, "fixedGridRhoFastjetAll")
         jets_o = jets_o[
             (abs(jets_o.eta) < 2.5)
-            #& (jets_o.pt > 20)
             & (jets_o.neHEF < 0.9)
             & (jets_o.neEmEF < 0.9)
             & (jets_o.muEF < 0.8)
@@ -173,17 +219,62 @@ class JESProcessor(processor.ProcessorABC):
             & (ak.num(jets_o) > 1)
         ]
 
-        def require_dijets(jets, pt_type="pt"):
+        def require_back2back(obj1, obj2, phi=2.7):
 
-            dijets = (
-                (abs(jets[:, 0].delta_phi(jets[:, 1])) > 2.7)
-                & (
-                  (ak.num(jets) == 2)
-                  | ((ak.num(jets) > 2) & (jets[:,2][pt_type] < 0.1 * (jets[:,0][pt_type] + jets[:,1][pt_type]) / 2)))
-            )
+            return (abs(obj1.delta_phi(obj2)) > phi)
 
-            return dijets
-        
+        def require_3rd_jet(jets, pt_type="pt"):
+
+            jet = jets[:, 2]
+            pt_ave = (jets[:, 0][pt_type] + jets[:, 1][pt_type]) / 2
+
+            return ~((jet[pt_type] > 30) & ((jet[pt_type] / pt_ave) > 0.2))
+
+        def require_n(jets_s, jets_o, two=True):
+
+            if two:
+                jet_s = jets_s[(ak.num(jets_s) == 2) & (ak.num(jets_o) == 2)][:, :2]
+                jet_o = jets_o[(ak.num(jets_s) == 2) & (ak.num(jets_o) == 2)][:, :2]
+            else:
+                jet_s = jets_s[(ak.num(jets_s) > 2) & (ak.num(jets_o) > 2)]
+                jet_o = jets_o[(ak.num(jets_s) > 2) & (ak.num(jets_o) > 2)]
+
+            return jet_s, jet_o
+
+        def require_eta(jets):
+
+            return ((abs(jets[:, 0].eta) < 1.3) | (abs(jets[:, 1].eta) < 1.3))
+
+        def criteria_one(jet_s, jet_o, phi=2.7):
+
+            b2b_s = require_back2back(jet_s[:, 0], jet_s[:, 1], phi)
+            eta_s = require_eta(jet_s)
+
+            b2b_o = require_back2back(jet_o[:, 0], jet_o[:, 1], phi)
+            eta_o = require_eta(jet_o)
+
+            req = ((b2b_s) & (b2b_o)) # & (eta_s) & (eta_o))
+
+            return jet_s[req], jet_o[req]
+
+        def criteria_n(jets_s, jets_o, pt_type="pt", phi=2.7):
+
+            third_jet_s = require_3rd_jet(jets_s, pt_type)
+            third_jet_o = require_3rd_jet(jets_o, pt_type)
+
+            jet_s = jets_s[(third_jet_s) & (third_jet_o)][:, :2]
+            jet_o = jets_o[(third_jet_s) & (third_jet_o)][:, :2]
+
+            b2b_s = require_back2back(jet_s[:, 0], jet_s[:, 1], phi)
+            eta_s = require_eta(jet_s)
+
+            b2b_o = require_back2back(jet_o[:, 0], jet_o[:, 1], phi)
+            eta_o = require_eta(jet_o)
+
+            req = ((b2b_s) & (b2b_o)) # & (eta_s) & (eta_o))
+
+            return jet_s[req], jet_o[req]
+
         def run_deltar_matching(obj1, obj2, radius=0.4): # NxM , NxG arrays
             _, obj2 = ak.unzip(ak.cartesian([obj1, obj2], nested=True)) # Obj2 is now NxMxG
             obj2['dR'] = obj1.delta_r(obj2)  # Calculating delta R
@@ -195,136 +286,223 @@ class JESProcessor(processor.ProcessorABC):
             # Cutting on delta R
             obj2 = obj2[obj2.dR < radius] # Additional cut on delta R, now a NxMxG' array 
             return obj2
-    
-        req_dijets_s = require_dijets(jets_ss, "pt_jec")
-        req_dijets_o = require_dijets(jets_oo)
 
-        dijets_s = jets_ss[(req_dijets_s) & (req_dijets_o)][:,:2]
-        dijets_o = jets_oo[(req_dijets_s) & (req_dijets_o)][:,:2]
-        
-        dijets_o_dr = ak.flatten(run_deltar_matching(dijets_s, dijets_o, 0.2), axis=2)
-        dijet_s_dr = dijets_s[(ak.num(dijets_o_dr) > 1)]
-        dijet_o_dr = dijets_o_dr[(ak.num(dijets_o_dr) > 1)]
-        
-        self._output["h1"].fill(
-            ratio = dijet_s_dr[:, 1][pt_type] / dijet_o_dr[:, 0].pt,
-            pt = dijet_o_dr[:, 0].pt,
-        )
-        
-        self._output["h1"].fill(
-            ratio = dijet_s_dr[:, 0][pt_type] / dijet_o_dr[:, 1].pt,
-            pt = dijet_o_dr[:, 1].pt,
-        )
-        
-        self._output["h1_mean"].fill(
-            sample = dijet_s_dr[:, 1][pt_type] / dijet_o_dr[:, 0].pt,
-            pt = dijet_o_dr[:, 0].pt,
-        )
-        
-        self._output["h1_mean"].fill(
-            sample = dijet_s_dr[:, 0][pt_type] / dijet_o_dr[:, 1].pt,
-            pt = dijet_o_dr[:, 1].pt,
-        )
-        
-        self._output["h2"].fill(
-            ratio = dijet_o_dr[:, 1].pt / dijet_o_dr[:, 0].pt,
-            pt = dijet_o_dr[:, 0].pt,
-        )
-        
-        self._output["h2"].fill(
-            ratio = dijet_o_dr[:, 0].pt / dijet_o_dr[:, 1].pt,
-            pt = dijet_o_dr[:, 1].pt,
-        )
-        
-        self._output["h2_mean"].fill(
-            sample = dijet_o_dr[:, 1].pt / dijet_o_dr[:, 0].pt,
-            pt = dijet_o_dr[:, 0].pt,
-        )
-        
-        self._output["h2_mean"].fill(
-            sample = dijet_o_dr[:, 0].pt / dijet_o_dr[:, 1].pt,
-            pt = dijet_o_dr[:, 1].pt,
-        )
-        
-        self._output["h3"].fill(
-            ratio = dijet_s_dr[:, 1][pt_type] / dijet_o_dr[:, 1].pt,
-            pt = dijet_o_dr[:, 0].pt,
-        )
-        
-        self._output["h3"].fill(
-            ratio = dijet_s_dr[:, 0][pt_type] / dijet_o_dr[:, 0].pt,
-            pt = dijet_o_dr[:, 1].pt,
-        )
-        
-        self._output["h3_mean"].fill(
-            sample = dijet_s_dr[:, 1][pt_type] / dijet_o_dr[:, 1].pt,
-            pt = dijet_o_dr[:, 0].pt,
-        )
-        
-        self._output["h3_mean"].fill(
-            sample = dijet_s_dr[:, 0][pt_type] / dijet_o_dr[:, 0].pt,
-            pt = dijet_o_dr[:, 1].pt,
-        )
-        
-        self._output["h4"].fill(
-            pt_hlt = dijet_s_dr[:, 1][pt_type],
-            pt_reco = dijet_o_dr[:, 0].pt,
-        )
-        
-        self._output["h4"].fill(
-            pt_hlt = dijet_s_dr[:, 0][pt_type],
-            pt_reco = dijet_o_dr[:, 1].pt,
-        )
-        
-        self._output["h4_mean"].fill(
-            sample = dijet_s_dr[:, 1][pt_type],
-            pt_reco = dijet_o_dr[:, 0].pt,
-        )
-        
-        self._output["h4_mean"].fill(
-            sample = dijet_s_dr[:, 0][pt_type],
-            pt_reco = dijet_o_dr[:, 1].pt,
-        )
+        jets_s_2, jets_o_2 = require_n(jets_ss, jets_oo, two=True)
+        jets_s_n, jets_o_n = require_n(jets_ss, jets_oo, two=False)
 
-#         self._output["h5"].fill(
-#             ratio = dijet_s_dr[:, 1][pt_type] / dijet_o_dr[:, 1].pt,
-#             pt = dijet_s_dr[:, 1].pt,
-#         )
+        dijet_s_2, dijet_o_2 = criteria_one(jets_s_2, jets_o_2, phi=2.7)
+        dijet_s_n, dijet_o_n = criteria_n(jets_s_n, jets_o_n, pt_type="pt_jec", phi=2.7)
+
+        dijet_2_dr = ak.flatten(run_deltar_matching(dijet_s_2, dijet_o_2, 0.2), axis=2)
+        dijet_s_2_dr = dijet_s_2[(ak.num(dijet_2_dr) > 1)]
+        dijet_o_2_dr = dijet_o_2[(ak.num(dijet_2_dr) > 1)]
+
+        dijet_n_dr = ak.flatten(run_deltar_matching(dijet_s_n, dijet_o_n, 0.2), axis=2)
+        dijet_s_n_dr = dijet_s_n[(ak.num(dijet_n_dr) > 1)]
+        dijet_o_n_dr = dijet_o_n[(ak.num(dijet_n_dr) > 1)]
         
-#         self._output["h5"].fill(
-#             ratio = dijet_s_dr[:, 0][pt_type] / dijet_o_dr[:, 0].pt,
-#             pt = dijet_s_dr[:, 0].pt,
-#         )
+        for two in [True, False]:
+            
+            if (two):
+                dijet_s_dr = dijet_s_2_dr
+                dijet_o_dr = dijet_o_2_dr
+                n = "two"
+            else:
+                dijet_s_dr = dijet_s_n_dr
+                dijet_o_dr = dijet_o_n_dr
+                n = "n"
         
-#         self._output["h5_mean"].fill(
-#             sample = dijet_s_dr[:, 1][pt_type] / dijet_o_dr[:, 1].pt,
-#             pt = dijet_s_dr[:, 1].pt,
-#         )
-        
-#         self._output["h5_mean"].fill(
-#             sample = dijet_s_dr[:, 0][pt_type] / dijet_o_dr[:, 0].pt,
-#             pt = dijet_s_dr[:, 0].pt,
-#         )
-        
-#         self._output["hlt_probe_mean"].fill(
-#             sample = dijet_s_dr[:, 0][pt_type],
-#             pt = dijet_s_dr[:, 0].pt,
-#         )
-        
-#         self._output["hlt_probe_mean"].fill(
-#             sample = dijet_s_dr[:, 1][pt_type],
-#             pt = dijet_s_dr[:, 1].pt,
-#         )
-        
-#         self._output["reco_probe_mean"].fill(
-#             sample = dijet_o_dr[:, 0].pt,
-#             pt = dijet_s_dr[:, 0].pt,
-#         )
-        
-#         self._output["reco_probe_mean"].fill(
-#             sample = dijet_o_dr[:, 1].pt,
-#             pt = dijet_s_dr[:, 1].pt,
-#         )
+            self._output["h1"].fill(
+                ratio = dijet_s_dr[:, 1][pt_type] / dijet_o_dr[:, 0][pt_type],
+                pt = dijet_o_dr[:, 0][pt_type],
+                dataset = dataset,
+                eta1 = np.abs(dijet_s_dr[:, 0].eta),
+                eta2 = np.abs(dijet_s_dr[:, 1].eta),
+#                 n = n,
+            )
+
+            self._output["h1"].fill(
+                ratio = dijet_s_dr[:, 0][pt_type] / dijet_o_dr[:, 1][pt_type],
+                pt = dijet_o_dr[:, 1][pt_type],
+                dataset = dataset,
+                eta1 = np.abs(dijet_s_dr[:, 0].eta),
+                eta2 = np.abs(dijet_s_dr[:, 1].eta),
+#                 n = n,
+            )
+
+            self._output["h1_mean"].fill(
+                sample = dijet_s_dr[:, 1][pt_type] / dijet_o_dr[:, 0][pt_type],
+                pt = dijet_o_dr[:, 0][pt_type],
+                dataset = dataset,
+                eta1 = np.abs(dijet_s_dr[:, 0].eta),
+                eta2 = np.abs(dijet_s_dr[:, 1].eta),
+#                 n = n,
+            )
+
+            self._output["h1_mean"].fill(
+                sample = dijet_s_dr[:, 0][pt_type] / dijet_o_dr[:, 1][pt_type],
+                pt = dijet_o_dr[:, 1][pt_type],
+                dataset = dataset,
+                eta1 = np.abs(dijet_s_dr[:, 0].eta),
+                eta2 = np.abs(dijet_s_dr[:, 1].eta),
+#                 n = n,
+            )
+
+            self._output["h2"].fill(
+                ratio = dijet_o_dr[:, 1][pt_type] / dijet_o_dr[:, 0][pt_type],
+                pt = dijet_o_dr[:, 0][pt_type],
+                dataset = dataset,
+                eta1 = np.abs(dijet_s_dr[:, 0].eta),
+                eta2 = np.abs(dijet_s_dr[:, 1].eta),
+#                 n = n,
+            )
+
+            self._output["h2"].fill(
+                ratio = dijet_o_dr[:, 0][pt_type] / dijet_o_dr[:, 1][pt_type],
+                pt = dijet_o_dr[:, 1][pt_type],
+                dataset = dataset,
+                eta1 = np.abs(dijet_s_dr[:, 0].eta),
+                eta2 = np.abs(dijet_s_dr[:, 1].eta),
+#                 n = n,
+            )
+
+            self._output["h2_mean"].fill(
+                sample = dijet_o_dr[:, 1][pt_type] / dijet_o_dr[:, 0][pt_type],
+                pt = dijet_o_dr[:, 0][pt_type],
+                dataset = dataset,
+                eta1 = np.abs(dijet_s_dr[:, 0].eta),
+                eta2 = np.abs(dijet_s_dr[:, 1].eta),
+#                 n = n,
+            )
+
+            self._output["h2_mean"].fill(
+                sample = dijet_o_dr[:, 0][pt_type] / dijet_o_dr[:, 1][pt_type],
+                pt = dijet_o_dr[:, 1][pt_type],
+                dataset = dataset,
+                eta1 = np.abs(dijet_s_dr[:, 0].eta),
+                eta2 = np.abs(dijet_s_dr[:, 1].eta),
+#                 n = n,
+            )
+
+            self._output["h3"].fill(
+                ratio = dijet_s_dr[:, 1][pt_type] / dijet_o_dr[:, 1][pt_type],
+                pt = dijet_o_dr[:, 0][pt_type],
+                dataset = dataset,
+                eta1 = np.abs(dijet_s_dr[:, 0].eta),
+                eta2 = np.abs(dijet_s_dr[:, 1].eta),
+#                 n = n,
+            )
+
+            self._output["h3"].fill(
+                ratio = dijet_s_dr[:, 0][pt_type] / dijet_o_dr[:, 0][pt_type],
+                pt = dijet_o_dr[:, 1][pt_type],
+                dataset = dataset,
+                eta1 = np.abs(dijet_s_dr[:, 0].eta),
+                eta2 = np.abs(dijet_s_dr[:, 1].eta),
+#                 n = n,
+            )
+
+            self._output["h3_mean"].fill(
+                sample = dijet_s_dr[:, 1][pt_type] / dijet_o_dr[:, 1][pt_type],
+                pt = dijet_o_dr[:, 0][pt_type],
+                dataset = dataset,
+                eta1 = np.abs(dijet_s_dr[:, 0].eta),
+                eta2 = np.abs(dijet_s_dr[:, 1].eta),
+#                 n = n,
+            )
+
+            self._output["h3_mean"].fill(
+                sample = dijet_s_dr[:, 0][pt_type] / dijet_o_dr[:, 0][pt_type],
+                pt = dijet_o_dr[:, 1][pt_type],
+                dataset = dataset,
+                eta1 = np.abs(dijet_s_dr[:, 0].eta),
+                eta2 = np.abs(dijet_s_dr[:, 1].eta),
+#                 n = n,
+            )
+
+            self._output["h4"].fill(
+                pt_hlt = dijet_s_dr[:, 1][pt_type],
+                pt = dijet_o_dr[:, 0][pt_type],
+                dataset = dataset,
+                eta1 = np.abs(dijet_s_dr[:, 0].eta),
+                eta2 = np.abs(dijet_s_dr[:, 1].eta),
+#                 n = n,
+            )
+
+            self._output["h4"].fill(
+                pt_hlt = dijet_s_dr[:, 0][pt_type],
+                pt = dijet_o_dr[:, 1][pt_type],
+                dataset = dataset,
+                eta1 = np.abs(dijet_s_dr[:, 0].eta),
+                eta2 = np.abs(dijet_s_dr[:, 1].eta),
+#                 n = n,
+            )
+
+            self._output["h4_mean"].fill(
+                sample = dijet_s_dr[:, 1][pt_type],
+                pt = dijet_o_dr[:, 0][pt_type],
+                dataset = dataset,
+                eta1 = np.abs(dijet_s_dr[:, 0].eta),
+                eta2 = np.abs(dijet_s_dr[:, 1].eta),
+#                 n = n,
+            )
+
+            self._output["h4_mean"].fill(
+                sample = dijet_s_dr[:, 0][pt_type],
+                pt = dijet_o_dr[:, 1][pt_type],
+                dataset = dataset,
+                eta1 = np.abs(dijet_s_dr[:, 0].eta),
+                eta2 = np.abs(dijet_s_dr[:, 1].eta),
+#                 n = n,
+            )
+
+#             self._output["h5"].fill(
+#                 ratio = dijet_s_dr[:, 1][pt_type] / dijet_o_dr[:, 1][pt_type],
+#                 pt = dijet_o_dr[:, 1][pt_type],
+#                 dataset = dataset,
+# #                 n = n,
+#             )
+
+#             self._output["h5"].fill(
+#                 ratio = dijet_s_dr[:, 0][pt_type] / dijet_o_dr[:, 0][pt_type],
+#                 pt = dijet_o_dr[:, 0][pt_type],
+#                 dataset = dataset,
+# #                 n = n,
+#             )
+
+#             self._output["h5_mean"].fill(
+#                 sample = dijet_s_dr[:, 1][pt_type] / dijet_o_dr[:, 1][pt_type],
+#                 pt = dijet_o_dr[:, 1][pt_type],
+#                 dataset = dataset,
+# #                 n = n,
+#             )
+
+#             self._output["h5_mean"].fill(
+#                 sample = dijet_s_dr[:, 0][pt_type] / dijet_o_dr[:, 0][pt_type],
+#                 pt = dijet_o_dr[:, 0][pt_type],
+#                 dataset = dataset,
+# #                 n = n,
+#             )
+
+#             self._output["hlt_probe_mean"].fill(
+#                 sample = dijet_s_dr[:, 0][pt_type],
+#                 pt = dijet_s_dr[:, 0][pt_type],
+#             )
+
+#             self._output["hlt_probe_mean"].fill(
+#                 sample = dijet_s_dr[:, 1][pt_type],
+#                 pt = dijet_s_dr[:, 1][pt_type],
+#             )
+
+#             self._output["reco_probe_mean"].fill(
+#                 sample = dijet_o_dr[:, 0][pt_type],
+#                 pt = dijet_s_dr[:, 0][pt_type],
+#             )
+
+#             self._output["reco_probe_mean"].fill(
+#                 sample = dijet_o_dr[:, 1][pt_type],
+#                 pt = dijet_s_dr[:, 1][pt_type],
+#             )
         
         return self._output
 

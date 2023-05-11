@@ -4,7 +4,7 @@ from lpcjobqueue import LPCCondorCluster
 from dask.distributed import performance_report
 from dask_jobqueue import HTCondorCluster, SLURMCluster
 
-from processors import HistProcessor, CutflowProcessor, ZbbProcessor, PVProcessor, JetIDProcessor, Nminus1Processor, TriggerProcessor, JERProcessor, JESProcessor
+from processors import HistProcessor, CutflowProcessor, ZbbProcessor, PVProcessor, JetIDProcessor, Nminus1Processor, TriggerProcessor, JESProcessor
 import os, sys
 import uproot
 from coffea import processor, util
@@ -14,7 +14,19 @@ import json
 
 sample = sys.argv[1] #"Run2022D"
 era = sys.argv[2] #"Run3Summer22"
+pt = sys.argv[3] #low
 
+if pt == "low":
+    lowPt = True
+    #triggers=["L1_HTT255er"]
+    triggers=["L1_SingleJet35", "L1_SingleJet60", "L1_HTT120er","L1_HTT160er","HLT_PFHT1050","L1_HTT200er","L1_HTT255er","L1_HTT280er","L1_HTT320er","L1_HTT360er","L1_HTT400er","L1_HTT450er","L1_SingleJet180","L1_SingleJet200"]
+    #triggers=["L1_SingleJet35", "L1_SingleJet60", "L1_HTT120er","L1_HTT160er","L1_HTT200er","L1_HTT255er"]
+else:
+    lowPt = False
+    triggers=["HLT_PFHT1050","L1_HTT200er","L1_HTT255er","L1_HTT280er","L1_HTT320er","L1_HTT360er","L1_HTT400er","L1_HTT450er","L1_SingleJet180","L1_SingleJet200"]
+
+print("Using triggers: ", triggers)
+    
 fileset = {}
 with open(f"inputfiles/{era}/{sample}.json") as fin:
     fileset = json.load(fin)
@@ -40,7 +52,7 @@ uproot.open.defaults["xrootd_handler"] = uproot.source.xrootd.MultithreadedXRoot
 output = processor.run_uproot_job(
             fileset,
             "Events",
-            processor_instance=JESProcessor(triggers=["HLT_Ele115_CaloIdVT_GsfTrkIdT", "HLT_Ele35_WPTight_Gsf", "HLT_IsoMu27", "HLT_Mu50", "HLT_Photon200"]),
+            processor_instance=JESProcessor(triggers=triggers, lowPt=lowPt),
             executor=processor.dask_executor,
             executor_args={
                 "schema": ScoutingJMENanoAODSchema,
@@ -53,7 +65,7 @@ output = processor.run_uproot_job(
             #maxchunks=args.max,
         )
 
-outfile = f"outfiles/{era}/fulllumi/jes_{sample}_nonHadronicTriggers.coffea"
+outfile = f"outfiles/{era}/jes_{sample}_had_{pt}_all_offlinePuppi.coffea"
 util.save(output, outfile)
 print("saved " + outfile)
 
