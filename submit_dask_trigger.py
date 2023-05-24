@@ -4,7 +4,7 @@ from lpcjobqueue import LPCCondorCluster
 from dask.distributed import performance_report
 from dask_jobqueue import HTCondorCluster, SLURMCluster
 
-from processors import HistProcessor, CutflowProcessor, ZbbProcessor, PVProcessor, JetIDProcessor, Nminus1Processor, TriggerProcessor
+from processors import HistProcessor, CutflowProcessor, ZbbProcessor, PVProcessor, JetIDProcessor, Nminus1Processor, TriggerProcessor, TriggerDijetProcessor
 import os, sys
 import uproot
 from coffea import processor, util
@@ -14,6 +14,16 @@ import json
 
 sample = sys.argv[1] #"Run2022D"
 era = sys.argv[2] #"Run3Summer22"
+dijet = False
+ext = ""
+trigger_processor = TriggerProcessor()
+if len(sys.argv) > 3:
+    dijet = True
+    ext = "_dijet"
+    trigger_processor = TriggerDijetProcessor()
+
+outfile = f"outfiles/{era}/trigger{ext}_{sample}.coffea"
+print("Writing ", outfile)
 
 fileset = {}
 with open(f"inputfiles/{era}/{sample}.json") as fin:
@@ -40,7 +50,7 @@ uproot.open.defaults["xrootd_handler"] = uproot.source.xrootd.MultithreadedXRoot
 output = processor.run_uproot_job(
             fileset,
             "Events",
-            processor_instance=TriggerProcessor(),
+            processor_instance=trigger_processor,
             executor=processor.dask_executor,
             executor_args={
                 "schema": ScoutingNanoAODSchema,
@@ -54,7 +64,6 @@ output = processor.run_uproot_job(
             #maxchunks=args.max,
         )
 
-outfile = f"outfiles/{era}/trigger_{sample}.coffea"
 util.save(output, outfile)
 print("saved " + outfile)
 

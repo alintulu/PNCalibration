@@ -16,19 +16,28 @@ sample = sys.argv[1] #"Run2022D"
 era = sys.argv[2] #"Run3Summer22"
 pt = sys.argv[3] #low
 ext = "had"
+isGen = False
+end = "_offlinePuppi"
 
 if pt == "low":
     lowPt = True
+    triggers=["L1_SingleJet35", "L1_SingleJet60", "L1_HTT120er"]
     #triggers=["L1_SingleJet35", "L1_SingleJet60", "L1_HTT120er","L1_HTT160er","L1_HTT200er","L1_HTT255er"]
-    triggers=["L1_SingleJet35", "L1_SingleJet60", "L1_HTT120er","L1_HTT160er","HLT_PFHT1050","L1_HTT200er","L1_HTT255er","L1_HTT280er","L1_HTT320er","L1_HTT360er","L1_HTT400er","L1_HTT450er","L1_SingleJet180","L1_SingleJet200"]
+    #triggers=["L1_HTT200er","L1_HTT255er","L1_HTT280er","L1_HTT320er","L1_HTT360er","L1_HTT400er","L1_HTT450er","L1_SingleJet180","L1_SingleJet200"]
 else:
     lowPt = False
     triggers=["HLT_PFHT1050","L1_HTT200er","L1_HTT255er","L1_HTT280er","L1_HTT320er","L1_HTT360er","L1_HTT400er","L1_HTT450er","L1_SingleJet180","L1_SingleJet200"]
 
 if len(sys.argv) > 4:
-    ext = sys.argv[3]
-    triggers = [ext]
+    ext = sys.argv[4]
+    if ext == "gen":
+       isGen = True
+       end = ""
+    else:
+       triggers = [ext]
 
+outfile = f"outfiles/{era}/jer_dijet_{sample}_{ext}_{pt}{end}_noPFHT1050_evenLess.coffea"
+print("Outputfile: ", outfile)
 print("Using triggers: ", triggers)
 
 fileset = {}
@@ -56,7 +65,7 @@ uproot.open.defaults["xrootd_handler"] = uproot.source.xrootd.MultithreadedXRoot
 output = processor.run_uproot_job(
             fileset,
             "Events",
-            processor_instance=JERDijetProcessor(triggers=triggers, lowPt=lowPt),
+            processor_instance=JERDijetProcessor(triggers=triggers, isGen=isGen, lowPt=lowPt),
             executor=processor.dask_executor,
             executor_args={
                 "schema": ScoutingJMENanoAODSchema,
@@ -69,7 +78,6 @@ output = processor.run_uproot_job(
             #maxchunks=args.max,
         )
 
-outfile = f"outfiles/{era}/jer_dijet_{sample}_{ext}_{pt}_all_offlinePuppi.coffea"
 util.save(output, outfile)
 print("saved " + outfile)
 
