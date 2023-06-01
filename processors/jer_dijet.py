@@ -17,21 +17,19 @@ from coffea.jetmet_tools import JECStack, CorrectedJetsFactory
 from coffea.jetmet_tools import FactorizedJetCorrector, JetCorrectionUncertainty
 
 class JERDijetProcessor(processor.ProcessorABC):
-    def __init__(self, triggers=[], lowPt=False):
-
-        if lowPt:
-            n, low, high = 10, 0, 500
-        else:
-            n, low, high = 30, 500, 2000
+    def __init__(self, triggers=[], isGen=False, lowPt=False):
         
         commonaxes = (
-            hist.axis.Regular(n, low, high, name="pt_ave", label=r"$p_{T}^{RECO,tag}$"),
+            hist.axis.Regular(40, 0, 2000, name="pt_ave", label=r"$p_{T}^{RECO,tag}$"),
             hist.axis.Variable([0, 1.3, 2.5], name="eta1", label=r"|$\eta_{1}$|"),
             hist.axis.Variable([0, 1.3, 2.5], name="eta2", label=r"|$\eta_{2}$|"),
             hist.axis.StrCategory([], name="dataset", label="Dataset name", growth=True),
         )
         
         self._triggers = triggers
+        self._isGen = isGen
+        self._lowPt = lowPt
+        self._recs = ["gen", "scouting", "offline"] if isGen else ["scouting", "offline"]
         
         self._output = {
                 "nevents": 0,
@@ -51,9 +49,15 @@ class JERDijetProcessor(processor.ProcessorABC):
                     *commonaxes,
                     storage=hist.storage.Mean()
                 ),
+                "gen" : Hist(
+                    *commonaxes,
+                    hist.axis.Regular(100, -0.5, 0.5, name="asymmetry", label="Asymmetry")
+                ),
+                "gen_mean": Hist(
+                    *commonaxes,
+                    storage=hist.storage.Mean()
+                ),
             }
-        
-        self._pt_type = "pt_jec"
         
         # scouting JEC
         ext = extractor()
@@ -135,6 +139,9 @@ class JERDijetProcessor(processor.ProcessorABC):
                 for value in values:
                     if value in events[key].fields:
                         reftrigger |= ak.to_numpy(events[key][value])
+
+            if self._lowPt:
+                reftrigger *= ~ak.to_numpy(events.HLT["PFHT1050"])
                         
             events = events[reftrigger]
 
@@ -159,7 +166,7 @@ class JERDijetProcessor(processor.ProcessorABC):
                 corrected_jets = self._jet_factory_offline.build(jets, lazy_cache=events.caches[0])
                 
             return corrected_jets
-
+            
         muons_s = events.ScoutingMuon[
             (events.ScoutingMuon.pt > 25)
             & (abs(events.ScoutingMuon.eta) < 2.4)
@@ -205,7 +212,7 @@ class JERDijetProcessor(processor.ProcessorABC):
             & (jets_o.chEmEF < 0.8)
             & ak.all(jets_o.metric_table(muons_o) > 0.4, axis=-1)
         ]
-        
+
         jet_s = jets_s[
             (ak.num(jets_s) > 0)
         #     & (ak.num(jets_o) > 0)
@@ -214,7 +221,14 @@ class JERDijetProcessor(processor.ProcessorABC):
             (ak.num(jets_o) > 0)
         #     & (ak.num(jets_s) > 0)
         ]
-
+        
+        if self._isGen:
+            
+            jets_gen = events.GenJet
+            jet_gen = jets_gen[
+                (ak.num(jets_gen) > 1)
+            ]
+            
         def require_back2back(obj1, obj2, phi=2.7):
 
             return (abs(obj1.delta_phi(obj2)) > phi)
@@ -264,48 +278,62 @@ class JERDijetProcessor(processor.ProcessorABC):
             
             asymmetry = (shuffle * jets[:,0][pt_type] + shuffle_opp * jets[:,1][pt_type]) / (jets[:,0][pt_type] + jets[:,1][pt_type])
             
-            return asymmetry
+            asymmetry_cut = (np.abs(asymmetry) < 0.5)
+            
+            return asymmetry[asymmetry_cut], asymmetry_cut
 
-        for rec in ["scouting", "offline"]:
-
-            jets = jet_s if rec == "scouting" else jet_o
-            pt_type = self._pt_type
+        for rec in self._recs:
+        
+            if (rec == "scouting"):
+                jets = jet_s
+                pt_type = "pt_jec"
+            elif (rec == "offline"):
+                jets = jet_o
+                pt_type = "pt_jec"
+            else:
+                jets = jet_gen
+                pt_type = "pt"
 
             jet_2 = require_n(jets, two=True)
             jet_n = require_n(jets, two=False)
 
             jet_2 = criteria_one(jet_2, phi=2.7)
             jet_n = criteria_n(jet_n, pt_type=pt_type, phi=2.7)
+            
+            asymmetry_2, asymmetry_2_cut = compute_asymmetry(jet_2)
+            jet_2_cut = jet_2[asymmetry_2_cut]
+            asymmetry_n, asymmetry_n_cut = compute_asymmetry(jet_n)
+            jet_n_cut = jet_n[asymmetry_n_cut]
 
             self._output[rec].fill(
-                asymmetry = compute_asymmetry(jet_2),
-                pt_ave = (jet_2[:,0][pt_type] + jet_2[:,1][pt_type]) / 2,
-                eta1 = np.abs(jet_2[:,0].eta),
-                eta2 = np.abs(jet_2[:,1].eta),
+                asymmetry = asymmetry_2,
+                pt_ave = (jet_2_cut[:,0][pt_type] + jet_2_cut[:,1][pt_type]) / 2,
+                eta1 = np.abs(jet_2_cut[:,0].eta),
+                eta2 = np.abs(jet_2_cut[:,1].eta),
                 dataset = dataset,
             )
             
             self._output[rec].fill(
-                asymmetry = compute_asymmetry(jet_n),
-                pt_ave = (jet_n[:,0][pt_type] + jet_n[:,1][pt_type]) / 2,
-                eta1 = np.abs(jet_n[:,0].eta),
-                eta2 = np.abs(jet_n[:,1].eta),
+                asymmetry = asymmetry_n,
+                pt_ave = (jet_n_cut[:,0][pt_type] + jet_n_cut[:,1][pt_type]) / 2,
+                eta1 = np.abs(jet_n_cut[:,0].eta),
+                eta2 = np.abs(jet_n_cut[:,1].eta),
                 dataset = dataset,
             )
             
             self._output[rec + "_mean"].fill(
-                sample = compute_asymmetry(jet_2),
-                pt_ave = (jet_2[:,0][pt_type] + jet_2[:,1][pt_type]) / 2,
-                eta1 = np.abs(jet_2[:,0].eta),
-                eta2 = np.abs(jet_2[:,1].eta),
+                sample = asymmetry_2,
+                pt_ave = (jet_2_cut[:,0][pt_type] + jet_2_cut[:,1][pt_type]) / 2,
+                eta1 = np.abs(jet_2_cut[:,0].eta),
+                eta2 = np.abs(jet_2_cut[:,1].eta),
                 dataset = dataset,
             )
             
             self._output[rec + "_mean"].fill(
-                sample = compute_asymmetry(jet_n),
-                pt_ave = (jet_n[:,0][pt_type] + jet_n[:,1][pt_type]) / 2,
-                eta1 = np.abs(jet_n[:,0].eta),
-                eta2 = np.abs(jet_n[:,1].eta),
+                sample = asymmetry_n,
+                pt_ave = (jet_n_cut[:,0][pt_type] + jet_n_cut[:,1][pt_type]) / 2,
+                eta1 = np.abs(jet_n_cut[:,0].eta),
+                eta2 = np.abs(jet_n_cut[:,1].eta),
                 dataset = dataset,
             )
             

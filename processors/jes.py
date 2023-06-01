@@ -19,13 +19,8 @@ from coffea.jetmet_tools import FactorizedJetCorrector, JetCorrectionUncertainty
 class JESProcessor(processor.ProcessorABC):
     def __init__(self, triggers=[], lowPt=False):
 
-        if lowPt:
-            n, low, high = 10, 0, 500
-        else:
-            n, low, high = 30, 500, 2000
-
         commonaxes = (
-            hist.axis.Regular(n, low, high, name="pt", label=r"$p_{T}^{RECO,tag}$"),
+            hist.axis.Regular(40, 0, 2000, name="pt", label=r"$p_{T}^{RECO,tag}$"),
             hist.axis.StrCategory([], name="dataset", label="Dataset name", growth=True),
             #hist.axis.StrCategory([], name="n", label="Number of jets", growth=True),
             hist.axis.Variable([0, 1.3, 2.5], name="eta1", label=r"|$\eta_{1}$|"),
@@ -33,6 +28,7 @@ class JESProcessor(processor.ProcessorABC):
         )
         
         self._triggers = triggers
+        self._lowPt = lowPt
         
         self._output = {
                 "nevents": 0,
@@ -62,7 +58,7 @@ class JESProcessor(processor.ProcessorABC):
                 ),
                 "h4": Hist(
                     *commonaxes,
-                    hist.axis.Regular(50, 200, 2000, name="pt_hlt", label=r"$p_{T}^{HLT,probe}$"),
+                    hist.axis.Regular(50, 200, 2000, name="ratio", label=r"$p_{T}^{HLT,probe}$"),
                 ),
                 "h4_mean": Hist(
                     *commonaxes,
@@ -163,6 +159,9 @@ class JESProcessor(processor.ProcessorABC):
                 for value in values:
                     if value in events[key].fields:
                         reftrigger |= ak.to_numpy(events[key][value])
+
+            if self._lowPt:
+                reftrigger *= ~ak.to_numpy(events.HLT["PFHT1050"])
 
             events = events[reftrigger]
         
@@ -286,6 +285,15 @@ class JESProcessor(processor.ProcessorABC):
             # Cutting on delta R
             obj2 = obj2[obj2.dR < radius] # Additional cut on delta R, now a NxMxG' array 
             return obj2
+        
+        def cut_ratio(ratio, h4=False):
+
+            if h4:
+                return ratio, np.ones(len(ratio), dtype=bool)
+
+            cut = (np.abs(ratio - 1) < 2) 
+            
+            return ratio[cut], cut
 
         jets_s_2, jets_o_2 = require_n(jets_ss, jets_oo, two=True)
         jets_s_n, jets_o_n = require_n(jets_ss, jets_oo, two=False)
@@ -311,198 +319,37 @@ class JESProcessor(processor.ProcessorABC):
                 dijet_s_dr = dijet_s_n_dr
                 dijet_o_dr = dijet_o_n_dr
                 n = "n"
+   
+            for ijet, jjet in [(0, 1), (1, 0)]:
         
-            self._output["h1"].fill(
-                ratio = dijet_s_dr[:, 1][pt_type] / dijet_o_dr[:, 0][pt_type],
-                pt = dijet_o_dr[:, 0][pt_type],
-                dataset = dataset,
-                eta1 = np.abs(dijet_s_dr[:, 0].eta),
-                eta2 = np.abs(dijet_s_dr[:, 1].eta),
-#                 n = n,
-            )
+                ratios = {
+                       "h1" : dijet_s_dr[:, jjet][pt_type] / dijet_o_dr[:, ijet][pt_type],
+                       "h2" : dijet_o_dr[:, jjet][pt_type] / dijet_o_dr[:, ijet][pt_type],
+                       "h3" : dijet_s_dr[:, jjet][pt_type] / dijet_o_dr[:, jjet][pt_type],
+                       "h4" : dijet_s_dr[:, jjet][pt_type],
+                }
+            
+                for key, value in ratios.items():
+                    
+                    value_cut, cut = cut_ratio(value, h4=True if key == "h4" else False)
+                    dijet_o_dr_cut = dijet_o_dr[cut]
+                    dijet_s_dr_cut = dijet_s_dr[cut]
+                    
+                    self._output[key].fill(
+                        ratio = value_cut,
+                        pt = dijet_o_dr_cut[:, ijet][pt_type],
+                        dataset = dataset,
+                        eta1 = np.abs(dijet_s_dr_cut[:, ijet].eta),
+                        eta2 = np.abs(dijet_s_dr_cut[:, jjet].eta),
+                    )
 
-            self._output["h1"].fill(
-                ratio = dijet_s_dr[:, 0][pt_type] / dijet_o_dr[:, 1][pt_type],
-                pt = dijet_o_dr[:, 1][pt_type],
-                dataset = dataset,
-                eta1 = np.abs(dijet_s_dr[:, 0].eta),
-                eta2 = np.abs(dijet_s_dr[:, 1].eta),
-#                 n = n,
-            )
-
-            self._output["h1_mean"].fill(
-                sample = dijet_s_dr[:, 1][pt_type] / dijet_o_dr[:, 0][pt_type],
-                pt = dijet_o_dr[:, 0][pt_type],
-                dataset = dataset,
-                eta1 = np.abs(dijet_s_dr[:, 0].eta),
-                eta2 = np.abs(dijet_s_dr[:, 1].eta),
-#                 n = n,
-            )
-
-            self._output["h1_mean"].fill(
-                sample = dijet_s_dr[:, 0][pt_type] / dijet_o_dr[:, 1][pt_type],
-                pt = dijet_o_dr[:, 1][pt_type],
-                dataset = dataset,
-                eta1 = np.abs(dijet_s_dr[:, 0].eta),
-                eta2 = np.abs(dijet_s_dr[:, 1].eta),
-#                 n = n,
-            )
-
-            self._output["h2"].fill(
-                ratio = dijet_o_dr[:, 1][pt_type] / dijet_o_dr[:, 0][pt_type],
-                pt = dijet_o_dr[:, 0][pt_type],
-                dataset = dataset,
-                eta1 = np.abs(dijet_s_dr[:, 0].eta),
-                eta2 = np.abs(dijet_s_dr[:, 1].eta),
-#                 n = n,
-            )
-
-            self._output["h2"].fill(
-                ratio = dijet_o_dr[:, 0][pt_type] / dijet_o_dr[:, 1][pt_type],
-                pt = dijet_o_dr[:, 1][pt_type],
-                dataset = dataset,
-                eta1 = np.abs(dijet_s_dr[:, 0].eta),
-                eta2 = np.abs(dijet_s_dr[:, 1].eta),
-#                 n = n,
-            )
-
-            self._output["h2_mean"].fill(
-                sample = dijet_o_dr[:, 1][pt_type] / dijet_o_dr[:, 0][pt_type],
-                pt = dijet_o_dr[:, 0][pt_type],
-                dataset = dataset,
-                eta1 = np.abs(dijet_s_dr[:, 0].eta),
-                eta2 = np.abs(dijet_s_dr[:, 1].eta),
-#                 n = n,
-            )
-
-            self._output["h2_mean"].fill(
-                sample = dijet_o_dr[:, 0][pt_type] / dijet_o_dr[:, 1][pt_type],
-                pt = dijet_o_dr[:, 1][pt_type],
-                dataset = dataset,
-                eta1 = np.abs(dijet_s_dr[:, 0].eta),
-                eta2 = np.abs(dijet_s_dr[:, 1].eta),
-#                 n = n,
-            )
-
-            self._output["h3"].fill(
-                ratio = dijet_s_dr[:, 1][pt_type] / dijet_o_dr[:, 1][pt_type],
-                pt = dijet_o_dr[:, 0][pt_type],
-                dataset = dataset,
-                eta1 = np.abs(dijet_s_dr[:, 0].eta),
-                eta2 = np.abs(dijet_s_dr[:, 1].eta),
-#                 n = n,
-            )
-
-            self._output["h3"].fill(
-                ratio = dijet_s_dr[:, 0][pt_type] / dijet_o_dr[:, 0][pt_type],
-                pt = dijet_o_dr[:, 1][pt_type],
-                dataset = dataset,
-                eta1 = np.abs(dijet_s_dr[:, 0].eta),
-                eta2 = np.abs(dijet_s_dr[:, 1].eta),
-#                 n = n,
-            )
-
-            self._output["h3_mean"].fill(
-                sample = dijet_s_dr[:, 1][pt_type] / dijet_o_dr[:, 1][pt_type],
-                pt = dijet_o_dr[:, 0][pt_type],
-                dataset = dataset,
-                eta1 = np.abs(dijet_s_dr[:, 0].eta),
-                eta2 = np.abs(dijet_s_dr[:, 1].eta),
-#                 n = n,
-            )
-
-            self._output["h3_mean"].fill(
-                sample = dijet_s_dr[:, 0][pt_type] / dijet_o_dr[:, 0][pt_type],
-                pt = dijet_o_dr[:, 1][pt_type],
-                dataset = dataset,
-                eta1 = np.abs(dijet_s_dr[:, 0].eta),
-                eta2 = np.abs(dijet_s_dr[:, 1].eta),
-#                 n = n,
-            )
-
-            self._output["h4"].fill(
-                pt_hlt = dijet_s_dr[:, 1][pt_type],
-                pt = dijet_o_dr[:, 0][pt_type],
-                dataset = dataset,
-                eta1 = np.abs(dijet_s_dr[:, 0].eta),
-                eta2 = np.abs(dijet_s_dr[:, 1].eta),
-#                 n = n,
-            )
-
-            self._output["h4"].fill(
-                pt_hlt = dijet_s_dr[:, 0][pt_type],
-                pt = dijet_o_dr[:, 1][pt_type],
-                dataset = dataset,
-                eta1 = np.abs(dijet_s_dr[:, 0].eta),
-                eta2 = np.abs(dijet_s_dr[:, 1].eta),
-#                 n = n,
-            )
-
-            self._output["h4_mean"].fill(
-                sample = dijet_s_dr[:, 1][pt_type],
-                pt = dijet_o_dr[:, 0][pt_type],
-                dataset = dataset,
-                eta1 = np.abs(dijet_s_dr[:, 0].eta),
-                eta2 = np.abs(dijet_s_dr[:, 1].eta),
-#                 n = n,
-            )
-
-            self._output["h4_mean"].fill(
-                sample = dijet_s_dr[:, 0][pt_type],
-                pt = dijet_o_dr[:, 1][pt_type],
-                dataset = dataset,
-                eta1 = np.abs(dijet_s_dr[:, 0].eta),
-                eta2 = np.abs(dijet_s_dr[:, 1].eta),
-#                 n = n,
-            )
-
-#             self._output["h5"].fill(
-#                 ratio = dijet_s_dr[:, 1][pt_type] / dijet_o_dr[:, 1][pt_type],
-#                 pt = dijet_o_dr[:, 1][pt_type],
-#                 dataset = dataset,
-# #                 n = n,
-#             )
-
-#             self._output["h5"].fill(
-#                 ratio = dijet_s_dr[:, 0][pt_type] / dijet_o_dr[:, 0][pt_type],
-#                 pt = dijet_o_dr[:, 0][pt_type],
-#                 dataset = dataset,
-# #                 n = n,
-#             )
-
-#             self._output["h5_mean"].fill(
-#                 sample = dijet_s_dr[:, 1][pt_type] / dijet_o_dr[:, 1][pt_type],
-#                 pt = dijet_o_dr[:, 1][pt_type],
-#                 dataset = dataset,
-# #                 n = n,
-#             )
-
-#             self._output["h5_mean"].fill(
-#                 sample = dijet_s_dr[:, 0][pt_type] / dijet_o_dr[:, 0][pt_type],
-#                 pt = dijet_o_dr[:, 0][pt_type],
-#                 dataset = dataset,
-# #                 n = n,
-#             )
-
-#             self._output["hlt_probe_mean"].fill(
-#                 sample = dijet_s_dr[:, 0][pt_type],
-#                 pt = dijet_s_dr[:, 0][pt_type],
-#             )
-
-#             self._output["hlt_probe_mean"].fill(
-#                 sample = dijet_s_dr[:, 1][pt_type],
-#                 pt = dijet_s_dr[:, 1][pt_type],
-#             )
-
-#             self._output["reco_probe_mean"].fill(
-#                 sample = dijet_o_dr[:, 0][pt_type],
-#                 pt = dijet_s_dr[:, 0][pt_type],
-#             )
-
-#             self._output["reco_probe_mean"].fill(
-#                 sample = dijet_o_dr[:, 1][pt_type],
-#                 pt = dijet_s_dr[:, 1][pt_type],
-#             )
+                    self._output[f"{key}_mean"].fill(
+                        sample = value_cut,
+                        pt = dijet_o_dr_cut[:, ijet][pt_type],
+                        dataset = dataset,
+                        eta1 = np.abs(dijet_s_dr_cut[:, ijet].eta),
+                        eta2 = np.abs(dijet_s_dr_cut[:, jjet].eta),
+                    )
         
         return self._output
 

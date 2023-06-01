@@ -132,22 +132,34 @@ class JERProcessor(processor.ProcessorABC):
         ]
 
         jets_ss = jets_s[
-            (ak.num(jets_s) > 2)
-            & (ak.num(jets_o) > 2)
-        ][:,:3]
+            (ak.num(jets_s) > 1)
+            & (ak.num(jets_o) > 1)
+        ]
         jets_oo = jets_o[
-            (ak.num(jets_s) > 2)
-            & (ak.num(jets_o) > 2)
-        ][:,:3]
+            (ak.num(jets_s) > 1)
+            & (ak.num(jets_o) > 1)
+        ]
         
         def require_dijets(jets, pt_type="pt"):
 
-            dijets = (
-                (abs(jets[:, 0].delta_phi(jets[:, 1])) > 2.7)
-                & (jets[:,2][pt_type] < 0.1 * (jets[:,0][pt_type] + jets[:,1][pt_type]) / 2)
+            exactly_two = (
+                (ak.num(jets) == 2)
+                & (abs(jets[:, 0].delta_phi(jets[:, 1])) > 2.7)
             )
 
-            return dijets
+            more_than_two = (ak.num(jets) > 2)
+            jets_more = jets[more_than_two]
+            more_than_two = (
+                (abs(jets_more[:, 0].delta_phi(jets_more[:, 1])) > 2.7)
+                & (jets_more[:,2][pt_type] < 0.1 * (jets_more[:,0][pt_type] + jets_more[:,1][pt_type]) / 2)
+            )
+
+            #dijets = (
+            #    (abs(jets[:, 0].delta_phi(jets[:, 1])) > 2.7)
+            #    & (jets[:,2][pt_type] < 0.1 * (jets[:,0][pt_type] + jets[:,1][pt_type]) / 2)
+            #)
+
+            return (exactly_two | more_than_two)
         
         def run_deltar_matching(obj1, obj2, radius=0.4): # NxM , NxG arrays
             _, obj2 = ak.unzip(ak.cartesian([obj1, obj2], nested=True)) # Obj2 is now NxMxG

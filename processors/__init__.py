@@ -9,9 +9,11 @@ from .btag import BTagProcessor
 from .nminus1 import Nminus1Processor
 from .debug import DebugProcessor
 from .trigger import TriggerProcessor
-from .jer import JERProcessor
+from .jer_dijet import JERDijetProcessor
+from .jer_photon import JERPhotonProcessor
 from .jes import JESProcessor
 from .diff import DiffProcessor
+from .trigger_dijet import TriggerDijetProcessor
 
 __all__ = [
     '__version__',
@@ -25,7 +27,9 @@ __all__ = [
     'Nminus1Processor',
     'DebugProcessor',
     'TriggerProcessor',
-    'JERProcessor',
+    'JERDijetProcessor',
+    'JERPhotonProcessor',
     'JESProcessor',
     'DiffProcessor',
+    'TriggerDijetProcessor',
 ]
