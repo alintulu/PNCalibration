@@ -17,6 +17,14 @@ from coffea.jetmet_tools import JECStack, CorrectedJetsFactory
 from coffea.jetmet_tools import FactorizedJetCorrector, JetCorrectionUncertainty
 from collections import defaultdict
 
+from processors.helper import (
+    run_deltar_matching,
+    require_n,
+    criteria_one,
+    cut_ratio,
+    select_eta,
+)
+
 class JESV2Processor(processor.ProcessorABC):
     def __init__(self):
 
@@ -197,98 +205,20 @@ class JESV2Processor(processor.ProcessorABC):
                 & (jets_o.chEmEF < 0.8)
             ]
 
-            jets_ss = jets_s[
+            jet_s = jets_s[
                 (ak.num(jets_s) > 1)
                 & (ak.num(jets_o) > 1)
             ]
-            jets_oo = jets_o[
+            jet_o = jets_o[
                 (ak.num(jets_s) > 1)
                 & (ak.num(jets_o) > 1)
             ]
 
-            def require_back2back(obj1, obj2, phi=2.7):
-
-                return (abs(obj1.delta_phi(obj2)) > phi)
-
-            def require_3rd_jet(jets, pt_type="pt"):
-
-                jet = jets[:, 2]
-                pt_ave = (jets[:, 0][pt_type] + jets[:, 1][pt_type]) / 2
-
-                return ((jet[pt_type] / pt_ave) < 0.05)
-
-            def require_n(jets_s, jets_o, two=True):
-
-                if two:
-                    jet_s = jets_s[(ak.num(jets_s) == 2) & (ak.num(jets_o) == 2)][:, :2]
-                    jet_o = jets_o[(ak.num(jets_s) == 2) & (ak.num(jets_o) == 2)][:, :2]
-                else:
-                    jet_s = jets_s[(ak.num(jets_s) > 2) & (ak.num(jets_o) > 2)]
-                    jet_o = jets_o[(ak.num(jets_s) > 2) & (ak.num(jets_o) > 2)]
-
-                return jet_s, jet_o
-
-            def require_eta(jets):
-
-                return ((abs(jets[:, 0].eta) < 1.3) | (abs(jets[:, 1].eta) < 1.3))
-
-            def criteria_one(jet_s, jet_o, phi=2.7):
-
-                b2b_s = require_back2back(jet_s[:, 0], jet_s[:, 1], phi)
-                eta_s = require_eta(jet_s)
-
-                b2b_o = require_back2back(jet_o[:, 0], jet_o[:, 1], phi)
-                eta_o = require_eta(jet_o)
-
-                req = ((b2b_s) & (b2b_o)) # & (eta_s) & (eta_o))
-
-                return jet_s[req], jet_o[req]
-
-            def criteria_n(jets_s, jets_o, pt_type="pt", phi=2.7):
-
-                third_jet_s = require_3rd_jet(jets_s, pt_type)
-                third_jet_o = require_3rd_jet(jets_o, pt_type)
-
-                jet_s = jets_s[(third_jet_s) & (third_jet_o)][:, :2]
-                jet_o = jets_o[(third_jet_s) & (third_jet_o)][:, :2]
-
-                b2b_s = require_back2back(jet_s[:, 0], jet_s[:, 1], phi)
-                eta_s = require_eta(jet_s)
-
-                b2b_o = require_back2back(jet_o[:, 0], jet_o[:, 1], phi)
-                eta_o = require_eta(jet_o)
-
-                req = ((b2b_s) & (b2b_o)) # & (eta_s) & (eta_o))
-
-                return jet_s[req], jet_o[req]
-
-            def run_deltar_matching(obj1, obj2, radius=0.4): # NxM , NxG arrays
-                _, obj2 = ak.unzip(ak.cartesian([obj1, obj2], nested=True)) # Obj2 is now NxMxG
-                obj2['dR'] = obj1.delta_r(obj2)  # Calculating delta R
-                t_index = ak.argmin(obj2.dR, axis=-2) # Finding the smallest dR (NxG array)
-                s_index = ak.local_index(obj1.eta, axis=-1) #  NxM array
-                _, t_index = ak.unzip(ak.cartesian([s_index, t_index], nested=True)) 
-                obj2 = obj2[s_index == t_index] # Pairwise comparison to keep smallest delta R
-
-                # Cutting on delta R
-                obj2 = obj2[obj2.dR < radius] # Additional cut on delta R, now a NxMxG' array 
-                return obj2
-
-            def cut_ratio(ratio, h4=False):
-
-                if h4:
-                    return ratio, np.ones(len(ratio), dtype=bool)
-
-                cut = (np.abs(ratio - 1) < 2) 
-
-                return ratio[cut], cut
-
-            jets_s_2, jets_o_2 = require_n(jets_ss, jets_oo, two=True)
-            jets_s_n, jets_o_n = require_n(jets_ss, jets_oo, two=False)
+            jets_s_2, jets_o_2 = require_n(jet_s, jet_o, two=True)
+            jets_s_n, jets_o_n = require_n(jet_s, jet_o, two=False)
 
             dijet_s_2, dijet_o_2 = criteria_one(jets_s_2, jets_o_2, phi=2.7)
             dijet_s_n, dijet_o_n = criteria_one(jets_s_n, jets_o_n, phi=2.7)
-            #dijet_s_n, dijet_o_n = criteria_n(jets_s_n, jets_o_n, pt_type=pt_type, phi=2.7)
 
             dijet_2_dr = ak.flatten(run_deltar_matching(dijet_s_2, dijet_o_2, 0.2), axis=2)
             dijet_s_2_dr = dijet_s_2[(ak.num(dijet_2_dr) > 1)]
@@ -308,24 +238,9 @@ class JESV2Processor(processor.ProcessorABC):
                         dijet_s_dr = dijet_s_n_dr
                         dijet_o_dr = dijet_o_n_dr
                         
-                    def select_eta(jet_s, jet_o, eta_region):
-                        if eta_region == "barrel":
-                            eta_cut = (
-                                (np.abs(jet_s[:,0].eta) < 1.3)
-                                & (np.abs(jet_s[:,1].eta) < 1.3)
-                                & (np.abs(jet_o[:,0].eta) < 1.3)
-                                & (np.abs(jet_o[:,1].eta) < 1.3)
-                            )
-                        elif eta_region == "endcap":
-                            eta_cut = (
-                                ((np.abs(jet_s[:,0].eta) > 1.3) & (np.abs(jet_s[:,0].eta) < 2.5))
-                                & ((np.abs(jet_s[:,1].eta) > 1.3) & (np.abs(jet_s[:,1].eta) < 2.5))
-                                & ((np.abs(jet_o[:,0].eta) > 1.3) & (np.abs(jet_o[:,0].eta) < 2.5))
-                                & ((np.abs(jet_o[:,1].eta) > 1.3) & (np.abs(jet_o[:,1].eta) < 2.5))
-                            )
-                        return jet_s[eta_cut], jet_o[eta_cut]
-                    
-                    dijet_s_dr, dijet_o_dr = select_eta(dijet_s_dr, dijet_o_dr, eta_region)
+                    eta_cut = select_eta(eta_region, dijet_s_dr, dijet_o_dr)
+                    dijet_s_dr = dijet_s_dr[eta_cut]
+                    dijet_o_dr = dijet_o_dr[eta_cut]
 
                     for ijet, jjet in [(0, 1), (1, 0)]:
 

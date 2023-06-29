@@ -17,6 +17,14 @@ from coffea.jetmet_tools import JECStack, CorrectedJetsFactory
 from coffea.jetmet_tools import FactorizedJetCorrector, JetCorrectionUncertainty
 from collections import defaultdict
 
+from processors.helper import (
+    run_deltar_matching,
+    require_n,
+    criteria_one,
+    compute_asymmetry,
+    select_eta,
+)
+
 class JERDijetV2Processor(processor.ProcessorABC):
     def __init__(self, isGen=False):
         
@@ -129,6 +137,14 @@ class JERDijetV2Processor(processor.ProcessorABC):
                     *self._commonaxes,
                     storage=hist.storage.Mean()
                 ),
+                "scouting_gen" : Hist(
+                    *self._commonaxes,
+                    hist.axis.Regular(100, 0.5, 1.5, name="ratio", label=r"Leading scouting $p_T$/Leading gen $p_T$")
+                ),
+                "offline_gen" : Hist(
+                    *self._commonaxes,
+                    hist.axis.Regular(100, 0.5, 1.5, name="ratio", label="Leading offline $p_T$/Leading gen $p_T$")
+                ),
             }
 
             paths = {}
@@ -220,72 +236,16 @@ class JERDijetV2Processor(processor.ProcessorABC):
 
             jet_s = jets_s[
                 (ak.num(jets_s) > 1)
-            #     & (ak.num(jets_o) > 1)
             ]
             jet_o = jets_o[
                 (ak.num(jets_o) > 1)
-            #     & (ak.num(jets_s) > 1)
             ]
 
             if self._isGen:
-
-                jets_gen = events.GenJet
+                jets_gen = events_trigger.GenJet
                 jet_gen = jets_gen[
                     (ak.num(jets_gen) > 1)
                 ]
-
-            def require_back2back(obj1, obj2, phi=2.7):
-
-                return (abs(obj1.delta_phi(obj2)) > phi)
-
-            def require_3rd_jet(jets, pt_type="pt"):
-
-                jet = jets[:, 2]
-                pt_ave = (jets[:, 0][pt_type] + jets[:, 1][pt_type]) / 2
-
-                return ~((jet[pt_type] > 30) & ((jet[pt_type] / pt_ave) > 0.2))
-
-            def require_n(jets, two=True):
-
-                if two:
-                    jet = jets[(ak.num(jets) == 2)][:, :2]
-                else:
-                    jet = jets[(ak.num(jets) > 2)]
-
-                return jet
-
-            def require_eta(jets):
-
-                return ((abs(jets[:, 0].eta) < 1.3) | (abs(jets[:, 1].eta) < 1.3))
-
-            def criteria_one(jet, phi=2.7):
-
-                b2b = require_back2back(jet[:, 0], jet[:, 1], phi)
-                eta = require_eta(jet)
-
-                return jet[(b2b)] # & (eta)]
-
-            def criteria_n(jets, pt_type="pt", phi=2.7):
-
-                third_jet = require_3rd_jet(jets, pt_type)
-
-                jet = jets[third_jet][:, :2]
-
-                b2b = require_back2back(jet[:, 0], jet[:, 1], phi)
-                eta = require_eta(jet)
-
-                return jet[(b2b)] # & (eta)]
-
-            def compute_asymmetry(jets, pt_type="pt"):
-
-                shuffle = random.choices([-1, 1], k=len(jets[:,0]))
-                shuffle_opp = [s * -1 for s in shuffle]
-
-                asymmetry = (shuffle * jets[:,0][pt_type] + shuffle_opp * jets[:,1][pt_type]) / (jets[:,0][pt_type] + jets[:,1][pt_type])
-
-                asymmetry_cut = (np.abs(asymmetry) < 0.5)
-
-                return asymmetry[asymmetry_cut], asymmetry_cut
 
             for rec in self._recs:
 
@@ -311,7 +271,6 @@ class JERDijetV2Processor(processor.ProcessorABC):
                 jet_n_cut = jet_n[asymmetry_n_cut]
                 
                 for eta_region in ["barrel", "endcap"]:
-                    
                     for two in [True, False]:
 
                         if (two):
@@ -321,22 +280,10 @@ class JERDijetV2Processor(processor.ProcessorABC):
                             jet = jet_n_cut
                             asymmetry = asymmetry_n
 
-                        if eta_region == "barrel":
-                            eta_cut = (
-                                (np.abs(jet[:,0].eta) < 1.3)
-                                & (np.abs(jet[:,1].eta) < 1.3)
-                            )
-                            jet = jet[eta_cut]
-                            asymmetry = asymmetry[eta_cut]
-                            
-                        elif eta_region == "endcap":
-                            eta_cut = (
-                                ((np.abs(jet[:,0].eta) > 1.3) & (np.abs(jet[:,0].eta) < 2.5))
-                                & ((np.abs(jet[:,1].eta) > 1.3) & (np.abs(jet[:,1].eta) < 2.5))
-                            )
-                            jet = jet[eta_cut]
-                            asymmetry = asymmetry[eta_cut]
-                        
+                        eta_cut = select_eta(eta_region, jet)
+                        jet = jet[eta_cut]
+                        asymmetry = asymmetry[eta_cut]
+            
                         h[rec].fill(
                             asymmetry = asymmetry,
                             pt_ave = (jet[:,0][pt_type] + jet[:,1][pt_type]) / 2,
@@ -355,6 +302,48 @@ class JERDijetV2Processor(processor.ProcessorABC):
                             dataset = dataset,
                         )
                         
+                if self._isGen:
+                    gens_orig = jets_gen
+                    
+                    for eta_region in ["barrel", "endcap"]:
+                        for two in [True, False]:
+                            for rec in ["scouting", "offline"]:
+
+                                if (rec == "scouting"):
+                                    jets_orig = jets_s
+                                    pt_type = "pt_jec"
+                                elif (rec == "offline"):
+                                    jets_orig = jets_o
+                                    pt_type = "pt_jec"
+                                    
+                                jets_cut = jets_orig[
+                                    (ak.num(jets_orig) > 1)
+                                    & (ak.num(gens_orig) > 1)
+                                ]
+                                gens_cut = gens_orig[
+                                    (ak.num(jets_orig) > 1)
+                                    & (ak.num(gens_orig) > 1)
+                                ]
+
+                                jets_cut, gens_cut = require_n(jets_cut, gens_cut, two=two)
+                                jets_cut, gens_cut = criteria_one(jets_cut, gens_cut, phi=2.7)
+                                eta_cut = select_eta(eta_region, jets_cut, gens_cut)
+                                jets_cut = jets_cut[eta_cut]
+                                gens_cut = gens_cut[eta_cut]
+
+                                match = ak.flatten(run_deltar_matching(jets_cut, gens_cut, 0.2), axis=2)
+                                jets_match = jets_cut[(ak.num(match) > 1)]
+                                gens_match = gens_cut[(ak.num(match) > 1)]
+                                
+                                h[f"{rec}_gen"].fill(
+                                    pt_ave = (jets_match[:,0][pt_type] + jets_match[:,1][pt_type]) / 2,
+                                    eta = eta_region,
+                                    pt_third = 0.0 if two else jets_match[:,2][pt_type],
+                                    alpha = 0.0 if two else (jets_match[:,2][pt_type] / ((jets_match[:,0][pt_type] + jets_match[:,1][pt_type]) / 2)),
+                                    dataset = dataset,
+                                    ratio = jets_match[:,0][pt_type] / gens_match[:,0].pt
+                                )
+                            
             output[trigger] = h 
         
         return output
